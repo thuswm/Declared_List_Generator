@@ -18,3 +18,11 @@ The Declared List Generator (DLG) is a tool for generating a Declared List Docum
 * **Session Resume:** Whenever a new session starts (or after `/clear`), read `PLAN.md` first before taking any action.
 
 
+
+
+### Documentation Layout
+* `PLAN.md` – short (about one screen): status, current release plan with checkboxes, next step, links. Finished releases move to `docs/archive/`.
+* `docs/decisions.md` – design decisions and gotchas (newest first). `docs/backlog.md` – ideas and open items. `CHANGELOG.md` – per-release summary. `README.md` – user-facing.
+* `my_notes.md` is the user's private, git-ignored scratch file: copy its decisions into the docs above, never commit it.
+* Versioning: SemVer, annotated tags `vX.Y.Z` on `main`, version in `pyproject.toml`; session `schema_version` is separate.
+* Platform: develop on Linux, must also work on Windows (no POSIX-only paths/APIs).
