@@ -79,6 +79,8 @@ tests/
 - (2026-11-17) User saw a 404 for the favicon request in the server log. Fixed by declaring an inline SVG icon in `index.html` (`<link rel="icon" href="data:...">`); verified no favicon request reaches the server in Firefox. Regression test in `tests/test_frontend.py`.
 - (2026-11-17) `python -m dlg` failed for the user because system Python was used instead of `.venv`; README now explains the venv.
 
+- (2026-11-17) Personal session files are git-ignored (`sessions/*.json`; `sessions/.gitkeep` keeps the folder). If a shared library of sessions is wanted later, move it to a separate folder or adjust `.gitignore`.
+
 ## Status: all planned phases complete
 Nothing is committed yet (waiting for the user's go-ahead).
 
