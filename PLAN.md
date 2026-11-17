@@ -5,8 +5,8 @@ Keep this file short (about one screen). Details live elsewhere:
 
 ## Status
 - **Released:** `v0.1.0` (2026-11-17) – first workable version. Full history: [docs/archive/release-0.1.0-plan.md](docs/archive/release-0.1.0-plan.md).
-- **Current:** Release 0.2.0 – plan finalized, **awaiting go-ahead to start; no code written yet.**
-- **Next step:** user gives go-ahead; create branch `release/0.2.0`, then step 1 (config file).
+- **Current:** Release 0.2.0 in progress on branch `release/0.2.0` (step 1 of 8 done).
+- **Next step:** step 2 – session schema v2 (`configuration_name`, `user_values`, v1 migration, name-collision fix).
 
 ## Release 0.2.0 – plan (final)
 
@@ -24,7 +24,7 @@ Keep this file short (about one screen). Details live elsewhere:
 - **Exit button:** `POST /api/shutdown`, accepted from localhost only; GUI shows "server stopped" afterwards.
 
 ### Steps (each: implement → test → tick here → log decisions)
-1. [ ] **Config file:** platform path resolver, load/create-with-defaults, writer, `--config`; remove env vars; update README; tests.
+1. [x] **Config file (done 2026-11-17, 61 tests pass):** platform path resolver, load/create-with-defaults, writer, `--config`; remove env vars; update README; tests.
 2. [ ] **Session schema v2:** `configuration_name`, `user_values`, v1 → v2 migration on load, name-collision fix; tests.
 3. [ ] **Configuration name in GUI:** field when saving; shown in the session load list and in the header after loading.
 4. [ ] **User-input columns:** marker parsing in `ExcelItemSource`, API exposes them, editable cells in the table, stored in session, included in export (`TABLE_COLUMNS`); tests incl. Node logic tests.

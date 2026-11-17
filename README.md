@@ -29,21 +29,36 @@ or activate the venv once per terminal and then use plain `python`
 ```bash
 source .venv/bin/activate
 python -m dlg
-# alternative without the launcher: uvicorn dlg.app:app
 ```
 
-Options: `--port 9000`, `--no-browser`, `--host`. The server listens on
+Options: `--config`, `--port 9000`, `--no-browser`, `--host`. The server listens on
 `127.0.0.1` only by default. There is no authentication, so do not expose it
 on an untrusted network. If the port is already in use, pick another with
 `--port`. Stop the server with Ctrl+C.
 
 ### Configuration
 
-| Environment variable | Default                                    | Meaning                       |
-|----------------------|--------------------------------------------|-------------------------------|
-| `DLG_ITEMS`          | `data/items.xlsx`                          | Excel item database           |
-| `DLG_TEMPLATE`       | `templates/declared_list_template.docx`    | Word template                 |
-| `DLG_SESSIONS`       | `sessions/`                                | Folder for session files      |
+Each user has a personal TOML file, created with defaults the first time the
+tool starts (or whenever it is missing; delete it to reset):
+
+| Platform      | Location                                                   |
+|---------------|------------------------------------------------------------|
+| Linux / macOS | `$XDG_CONFIG_HOME/dlg/config.toml`, else `~/.config/dlg/config.toml` |
+| Windows       | `%APPDATA%\dlg\config.toml`                                |
+
+Use a different file with `python -m dlg --config path/to/config.toml`.
+
+| Key             | Default                                    | Meaning                                  |
+|-----------------|--------------------------------------------|------------------------------------------|
+| `items_file`    | `data/items.xlsx` (in the project)         | Excel item database                      |
+| `template_file` | `templates/declared_list_template.docx`    | Word template                            |
+| `sessions_dir`  | `sessions/` (in the project)               | Folder for session files                 |
+| `output_dir`    | `output/` (in the project)                 | Folder for generated Word documents (used from a later step) |
+| `host`, `port`  | `127.0.0.1`, `8000`                        | Where the server listens                 |
+
+Relative paths in the file are resolved against the folder containing it.
+`--host` / `--port` on the command line override the file. The old `DLG_*`
+environment variables are no longer used.
 
 ## Using it
 
@@ -104,6 +119,7 @@ node --test tests/js      # JS tests alone
 
 ```
 src/dlg/
+  config.py        per-user config file
   models.py        Item and Session models
   sources/         ItemSource interface and the Excel implementation
   sessions.py      session JSON storage

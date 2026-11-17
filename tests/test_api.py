@@ -9,7 +9,8 @@ import pytest
 from docx import Document
 from fastapi.testclient import TestClient
 
-from dlg.app import DOCX_MEDIA_TYPE, Settings, create_app
+from dlg.app import DOCX_MEDIA_TYPE, create_app
+from dlg.config import Config
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -17,9 +18,9 @@ ROOT = Path(__file__).resolve().parent.parent
 @pytest.fixture
 def client(tmp_path: Path) -> TestClient:
     """A client using the example DB/template and an empty temp sessions folder."""
-    settings = Settings(
-        items_path=ROOT / "data" / "items.xlsx",
-        template_path=ROOT / "templates" / "declared_list_template.docx",
+    settings = Config(
+        items_file=ROOT / "data" / "items.xlsx",
+        template_file=ROOT / "templates" / "declared_list_template.docx",
         sessions_dir=tmp_path / "sessions",
     )
     return TestClient(create_app(settings))
@@ -98,30 +99,19 @@ def test_export_errors(client: TestClient) -> None:
 
 def test_missing_database_and_template(tmp_path: Path) -> None:
     """Server-side configuration problems surface as 500 with a message."""
-    settings = Settings(
-        items_path=tmp_path / "missing.xlsx",
-        template_path=tmp_path / "missing.docx",
+    settings = Config(
+        items_file=tmp_path / "missing.xlsx",
+        template_file=tmp_path / "missing.docx",
         sessions_dir=tmp_path / "s",
     )
     c = TestClient(create_app(settings))
     r = c.get("/api/items")
     assert r.status_code == 500 and "not found" in r.json()["detail"]
 
-    ok = Settings(
-        items_path=ROOT / "data" / "items.xlsx",
-        template_path=tmp_path / "missing.docx",
+    ok = Config(
+        items_file=ROOT / "data" / "items.xlsx",
+        template_file=tmp_path / "missing.docx",
         sessions_dir=tmp_path / "s",
     )
     r = TestClient(create_app(ok)).post("/api/export", json={"selected_ids": ["DL-001"]})
     assert r.status_code == 500 and "Template not found" in r.json()["detail"]
-
-
-def test_settings_read_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Environment variables override the default file locations."""
-    monkeypatch.setenv("DLG_ITEMS", str(tmp_path / "i.xlsx"))
-    monkeypatch.setenv("DLG_TEMPLATE", str(tmp_path / "t.docx"))
-    monkeypatch.setenv("DLG_SESSIONS", str(tmp_path / "s"))
-    s = Settings()
-    assert (s.items_path, s.template_path, s.sessions_dir) == (
-        tmp_path / "i.xlsx", tmp_path / "t.docx", tmp_path / "s",
-    )

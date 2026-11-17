@@ -1,13 +1,11 @@
 """FastAPI application: JSON API plus the static browser GUI.
 
-Run with ``uvicorn dlg.app:app`` (see README). File locations come from
-:class:`Settings`, which can be overridden with environment variables.
+Normally started through ``python -m dlg`` (see README). File locations come from
+the per-user :class:`dlg.config.Config` (see ``dlg/config.py``).
 """
 
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -15,37 +13,14 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from dlg.config import Config
 from dlg.docgen import DocgenError, render_to_bytes
 from dlg.models import Item, Session
 from dlg.sessions import SessionError, SessionNotFoundError, SessionStore
 from dlg.sources.excel import ExcelItemSource, ItemSourceError
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-
-
-@dataclass
-class Settings:
-    """File locations used by the application.
-
-    Attributes:
-        items_path: Excel item database.
-        template_path: Word template containing the placeholder.
-        sessions_dir: Folder for session JSON files.
-    """
-
-    items_path: Path = field(
-        default_factory=lambda: Path(os.environ.get("DLG_ITEMS", PROJECT_ROOT / "data" / "items.xlsx"))
-    )
-    template_path: Path = field(
-        default_factory=lambda: Path(
-            os.environ.get("DLG_TEMPLATE", PROJECT_ROOT / "templates" / "declared_list_template.docx")
-        )
-    )
-    sessions_dir: Path = field(
-        default_factory=lambda: Path(os.environ.get("DLG_SESSIONS", PROJECT_ROOT / "sessions"))
-    )
 
 
 class ItemsResponse(BaseModel):
@@ -98,17 +73,18 @@ class ExportRequest(BaseModel):
     selected_ids: list[str]
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Config | None = None) -> FastAPI:
     """Build the FastAPI application.
 
     Args:
-        settings: File locations; defaults to :class:`Settings` (env-aware).
+        settings: Configuration; defaults to the built-in :class:`Config`
+            defaults (the per-user file is loaded by the launcher).
 
     Returns:
         The configured application.
     """
-    cfg = settings or Settings()
-    source = ExcelItemSource(cfg.items_path)
+    cfg = settings or Config()
+    source = ExcelItemSource(cfg.items_file)
     store = SessionStore(cfg.sessions_dir)
     app = FastAPI(title="Declared List Generator")
 
@@ -192,7 +168,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if unknown:
             raise HTTPException(status_code=422, detail=f"Unknown item IDs: {', '.join(unknown)}")
         try:
-            data = render_to_bytes(cfg.template_path, [i for i in items if i.id in wanted])
+            data = render_to_bytes(cfg.template_file, [i for i in items if i.id in wanted])
         except DocgenError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return Response(
@@ -206,5 +182,3 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
     return app
 
-
-app = create_app()
