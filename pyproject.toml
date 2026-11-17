@@ -1,0 +1,28 @@
+[project]
+name = "dlg"
+version = "0.1.0"
+description = "Declared List Generator"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic>=2",
+    "openpyxl",
+    "python-docx",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+dlg = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

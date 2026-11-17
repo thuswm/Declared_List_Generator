@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Declared List Generator</title>
+  <!-- Inline icon: stops browsers requesting /favicon.ico (which would 404). -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231f5fbf'/%3E%3Cpath d='M8 17l5 5 11-12' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1>Declared List Generator</h1>
+    <span id="source" class="muted"></span>
+  </header>
+
+  <div id="status" class="status" role="status" aria-live="polite" hidden></div>
+
+  <main>
+    <section class="panel" aria-labelledby="session-heading">
+      <h2 id="session-heading">Session</h2>
+      <div class="row">
+        <label for="session-name">Name</label>
+        <input id="session-name" type="text" maxlength="200" placeholder="e.g. Project A">
+        <button id="save-btn" type="button">Save</button>
+      </div>
+      <div class="row">
+        <label for="session-list">Saved</label>
+        <select id="session-list"></select>
+        <button id="load-btn" type="button">Load</button>
+        <button id="delete-btn" type="button" class="danger">Delete</button>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="items-heading">
+      <h2 id="items-heading">Items</h2>
+      <div class="row toolbar">
+        <label for="search" class="sr-only">Search</label>
+        <input id="search" type="search" placeholder="Search items…" autocomplete="off">
+        <label for="category" class="sr-only">Category</label>
+        <select id="category"><option value="">All categories</option></select>
+        <label class="inline"><input id="only-selected" type="checkbox"> Selected only</label>
+        <button id="clear-btn" type="button">Clear selection</button>
+        <span id="count" class="muted" aria-live="polite"></span>
+        <button id="export-btn" type="button" class="primary">Export Word document</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="check"><input id="select-visible" type="checkbox" aria-label="Select all visible items"></th>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Description</th>
+              <th>Category</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <p id="empty" class="muted" hidden>No items match the current filter.</p>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
