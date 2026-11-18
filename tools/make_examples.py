@@ -40,9 +40,10 @@ def make_items_xlsx(path: Path) -> None:
     wb = Workbook()
     ws = wb.active
     ws.title = "Items"
-    ws.append(["ID", "Name", "Description", "Category", "Supplier"])
+    # "#Internal note" shows the omit marker: the tool ignores that column.
+    ws.append(["ID", "Name", "Description", "Category", "Supplier", "#Internal note"])
     for row in SAMPLE_ITEMS:
-        ws.append(list(row))
+        ws.append([*row, f"Checked by purchasing ({row[0]})"])
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
 

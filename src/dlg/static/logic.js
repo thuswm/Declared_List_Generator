@@ -6,43 +6,30 @@
  */
 
 /**
- * Build the lower-cased text an item is searched against.
- * @param {{id:string,name:string,description:string,category:string,extra?:Object<string,string>}} item
+ * Build the lower-cased text an item is searched against (all shown columns).
+ * @param {{id:string,values:Object<string,string>}} item
  * @returns {string} Space-joined searchable text.
  */
 function searchText(item) {
-  const extra = Object.values(item.extra || {});
-  return [item.id, item.name, item.description, item.category, ...extra].join(' ').toLowerCase();
+  return [item.id, ...Object.values(item.values || {})].join(' ').toLowerCase();
 }
 
 /**
- * Filter items by search text, category and "selected only".
+ * Filter items by search text and "selected only".
  * Every whitespace-separated search term must appear somewhere in the item.
  * @param {Array} items All items.
- * @param {{search:string,category:string,onlySelected:boolean}} filter Active filter.
+ * @param {{search:string,onlySelected:boolean}} filter Active filter.
  * @param {Set<string>} selected IDs of selected items.
  * @returns {Array} Items that pass the filter, in original order.
  */
 export function filterItems(items, filter, selected) {
   const terms = filter.search.toLowerCase().split(/\s+/).filter(Boolean);
   return items.filter((item) => {
-    if (filter.category && item.category !== filter.category) return false;
     if (filter.onlySelected && !selected.has(item.id)) return false;
     if (terms.length === 0) return true;
     const text = searchText(item);
     return terms.every((t) => text.includes(t));
   });
-}
-
-/**
- * List the distinct, non-empty categories.
- * @param {Array} items All items.
- * @returns {string[]} Sorted category names.
- */
-export function categories(items) {
-  return [...new Set(items.map((i) => i.category).filter(Boolean))].sort((a, b) =>
-    a.localeCompare(b),
-  );
 }
 
 /**

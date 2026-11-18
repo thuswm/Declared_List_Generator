@@ -37,8 +37,6 @@
       <div class="row toolbar">
         <label for="search" class="sr-only">Search</label>
         <input id="search" type="search" placeholder="Search items…" autocomplete="off">
-        <label for="category" class="sr-only">Category</label>
-        <select id="category"><option value="">All categories</option></select>
         <label class="inline"><input id="only-selected" type="checkbox"> Selected only</label>
         <button id="clear-btn" type="button">Clear selection</button>
         <span id="count" class="muted" aria-live="polite"></span>
@@ -48,12 +46,9 @@
       <div class="table-wrap">
         <table>
           <thead>
-            <tr>
+            <tr id="head-row">
               <th class="check"><input id="select-visible" type="checkbox" aria-label="Select all visible items"></th>
-              <th>ID</th>
-              <th>Name</th>
-              <th>Description</th>
-              <th>Category</th>
+              <!-- Column headers are added by app.js from the item database. -->
             </tr>
           </thead>
           <tbody id="rows"></tbody>

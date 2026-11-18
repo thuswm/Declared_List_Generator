@@ -27,11 +27,16 @@ def client(tmp_path: Path) -> TestClient:
 
 
 def test_get_items(client: TestClient) -> None:
-    """Items are returned with the database name."""
+    """Items are returned with the database name, ID column and shown columns."""
     body = client.get("/api/items").json()
     assert body["source"] == "items.xlsx"
+    assert body["id_column"] == "ID"
+    assert [c["name"] for c in body["columns"]] == ["ID", "Name", "Description", "Category", "Supplier"]
     assert len(body["items"]) == 12
-    assert body["items"][0]["id"] == "DL-001"
+    first = body["items"][0]
+    assert first["id"] == "DL-001"
+    assert first["values"]["Supplier"] == "Acme Fluid"
+    assert "#Internal note" not in first["values"]
 
 
 def test_session_lifecycle(client: TestClient) -> None:
@@ -86,7 +91,8 @@ def test_export_returns_docx_in_database_order(client: TestClient) -> None:
     assert r.headers["content-type"] == DOCX_MEDIA_TYPE
     assert "declared_list.docx" in r.headers["content-disposition"]
     table = Document(BytesIO(r.content)).tables[0]
-    assert [row.cells[1].text for row in table.rows[1:]] == ["DL-002", "DL-005", "DL-009"]
+    assert [c.text for c in table.rows[0].cells] == ["ID", "Name", "Description", "Category", "Supplier"]
+    assert [row.cells[0].text for row in table.rows[1:]] == ["DL-002", "DL-005", "DL-009"]
 
 
 def test_export_errors(client: TestClient) -> None:
@@ -115,3 +121,29 @@ def test_missing_database_and_template(tmp_path: Path) -> None:
     )
     r = TestClient(create_app(ok)).post("/api/export", json={"selected_ids": ["DL-001"]})
     assert r.status_code == 500 and "Template not found" in r.json()["detail"]
+
+
+def test_configured_id_column(tmp_path: Path) -> None:
+    """``id_column`` from the configuration selects the key column end to end."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    for row in (["Part No", "Title", "#Hidden"], ["P1", "Widget", "x"], ["P2", "Gadget", "y"]):
+        wb.active.append(row)
+    wb.save(tmp_path / "parts.xlsx")
+    settings = Config(
+        items_file=tmp_path / "parts.xlsx",
+        template_file=ROOT / "templates" / "declared_list_template.docx",
+        sessions_dir=tmp_path / "s",
+        id_column="Part No",
+    )
+    c = TestClient(create_app(settings))
+    body = c.get("/api/items").json()
+    assert [i["id"] for i in body["items"]] == ["P1", "P2"]
+    r = c.post("/api/export", json={"selected_ids": ["P2"]})
+    rows = [[cell.text for cell in row.cells] for row in Document(BytesIO(r.content)).tables[0].rows]
+    assert rows == [["Part No", "Title"], ["P2", "Gadget"]]
+
+    wrong = Config(items_file=tmp_path / "parts.xlsx", sessions_dir=tmp_path / "s")  # default 'ID'
+    r = TestClient(create_app(wrong)).get("/api/items")
+    assert r.status_code == 500 and "id_column" in r.json()["detail"]

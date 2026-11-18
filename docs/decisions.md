@@ -3,6 +3,16 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-18 – Columns from the Excel file (0.2.0 step 3)
+- Model: `ItemTable(id_column, columns: list[Column], items)`, `Item(id, values: dict[column -> text])`. `values` holds every shown column (incl. the ID column) in sheet order, `""` for empty cells. `Column` is an object (not a bare string) so step 7 can add a `user_input` flag without changing the API shape.
+- `ItemSource.load() -> ItemTable` replaces `load_items()`. Fixed `name/description/category/extra` fields, `TABLE_COLUMNS`, the docgen `Column` dataclass and the category dropdown are gone.
+- Headers are stripped; `#`-prefixed and empty headers are skipped; duplicate shown headers are an error (values are keyed by header). Missing ID column → error naming the `id_column` setting and listing the available columns. Empty sheet → error.
+- Cell text: dates without time → `YYYY-MM-DD`; whole floats → no `.0`.
+- Word column widths: weight = max(average text length, longest single word incl. header), clamped 4..40, scaled to the text width. Keeps codes unbroken and stops one long description column from squeezing the rest.
+- Config: `id_column` (default `ID`, must be non-empty). Settings missing from an existing config file are **appended** with defaults (not rewritten, so user edits/comments survive), so new settings become visible to the user.
+- Sessions are unchanged (IDs only), so v1 files keep working; if `id_column` is changed to a different column, old sessions' IDs will no longer match (reported as unknown on load).
+- Example database gets a `#Internal note` column to demonstrate the omit marker.
+
 ## 2026-11-18 – README for Linux and Windows (0.2.0 step 2)
 - Windows commands use `.venv\Scripts\python` directly (works in PowerShell and cmd without activation); `py -3` launcher for creating the venv.
 - `".[dev]"` in double quotes: cmd does not treat single quotes as quoting.

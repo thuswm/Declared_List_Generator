@@ -55,7 +55,8 @@ def test_windows_style_and_unicode_paths_round_trip(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "text, fragment",
     [("port = [", "not valid TOML"), ('port = "80"', "'port' must be a int"),
-     ("items_file = 3", "'items_file' must be a str"), ("port = 70000", "between 1 and 65535")],
+     ("items_file = 3", "'items_file' must be a str"), ("port = 70000", "between 1 and 65535"),
+     ('id_column = "  "', "'id_column' must not be empty")],
 )
 def test_invalid_config(tmp_path: Path, text: str, fragment: str) -> None:
     """Broken files raise ConfigError with a helpful message."""
@@ -63,3 +64,25 @@ def test_invalid_config(tmp_path: Path, text: str, fragment: str) -> None:
     path.write_text(text, encoding="utf-8")
     with pytest.raises(ConfigError, match=fragment):
         load_config(path)
+
+
+def test_id_column_setting(tmp_path: Path) -> None:
+    """``id_column`` defaults to 'ID' and is read (trimmed) from the file."""
+    assert Config().id_column == "ID"
+    path = tmp_path / "config.toml"
+    path.write_text('id_column = " Part No "\n', encoding="utf-8")
+    assert load_config(path).id_column == "Part No"
+
+
+def test_new_settings_are_appended_to_an_old_file(tmp_path: Path) -> None:
+    """Keys missing from an existing file are appended with defaults; user lines are kept."""
+    path = tmp_path / "config.toml"
+    path.write_text('# my comment\nport = 9000', encoding="utf-8")  # no trailing newline
+    cfg = load_config(path)
+    text = path.read_text(encoding="utf-8")
+    assert text.startswith("# my comment\nport = 9000\n")
+    assert 'id_column = "ID"' in text
+    assert text.count("port =") == 1
+    assert cfg.port == 9000
+    assert load_config(path) == cfg
+    assert path.read_text(encoding="utf-8") == text  # nothing appended twice

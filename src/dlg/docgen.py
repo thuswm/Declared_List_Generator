@@ -9,8 +9,7 @@ template is expected to put it in a landscape section).
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Sequence
 from io import BytesIO
 from pathlib import Path
 
@@ -37,44 +36,49 @@ class DocgenError(Exception):
     """Raised when the document cannot be generated."""
 
 
-@dataclass(frozen=True)
-class Column:
-    """One column of the declared-list table.
+#: Limits for a column's relative width (in characters), so one long text
+#: column cannot squeeze the others to nothing and tiny columns stay readable.
+MIN_WEIGHT = 4.0
+MAX_WEIGHT = 40.0
 
-    Attributes:
-        header: Header text.
-        value: Function returning the cell text for a (1-based row number, item).
-        weight: Relative width; widths are scaled to fill the section's text area.
+
+def column_weights(columns: Sequence[str], items: Sequence[Item]) -> list[float]:
+    """Estimate relative column widths from the content.
+
+    A column gets the larger of its average text length and its longest single
+    word (so IDs and part numbers are not broken mid-word), clamped to
+    ``MIN_WEIGHT``..``MAX_WEIGHT``. Widths are later scaled to the page.
+
+    Args:
+        columns: Column names (the header texts).
+        items: Items whose values fill the table.
+
+    Returns:
+        One weight per column.
     """
-
-    header: str
-    value: Callable[[int, Item], str]
-    weight: float
-
-
-#: The columns of the declared-list table. Edit here to change the output layout.
-TABLE_COLUMNS: tuple[Column, ...] = (
-    Column("No.", lambda n, i: str(n), 0.6),
-    Column("ID", lambda n, i: i.id, 1.2),
-    Column("Name", lambda n, i: i.name, 2.5),
-    Column("Description", lambda n, i: i.description, 4.5),
-    Column("Category", lambda n, i: i.category, 1.8),
-)
+    weights = []
+    for name in columns:
+        texts = [i.values.get(name, "") for i in items]
+        average = sum(len(t) for t in texts) / len(texts) if texts else 0.0
+        words = [w for t in [name, *texts] for w in t.split()]
+        longest_word = max((len(w) for w in words), default=0)
+        weights.append(min(max(average, longest_word, MIN_WEIGHT), MAX_WEIGHT))
+    return weights
 
 
 def generate_declared_list(
     template_path: str | Path,
+    columns: Sequence[str],
     items: Sequence[Item],
     output_path: str | Path,
-    columns: Sequence[Column] = TABLE_COLUMNS,
 ) -> Path:
     """Create a declared list document and save it to disk.
 
     Args:
         template_path: Word template containing the placeholder paragraph.
+        columns: Names of the columns to put in the table, in order.
         items: Items to list, in the order they should appear.
         output_path: Where to write the finished .docx.
-        columns: Table column definitions.
 
     Returns:
         The output path.
@@ -83,7 +87,7 @@ def generate_declared_list(
         DocgenError: If the template is missing/invalid, has no placeholder,
             or no items were given.
     """
-    doc = build_document(template_path, items, columns)
+    doc = build_document(template_path, columns, items)
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     doc.save(out)
@@ -92,15 +96,15 @@ def generate_declared_list(
 
 def render_to_bytes(
     template_path: str | Path,
+    columns: Sequence[str],
     items: Sequence[Item],
-    columns: Sequence[Column] = TABLE_COLUMNS,
 ) -> bytes:
     """Create a declared list document in memory (for HTTP downloads).
 
     Args:
         template_path: Word template containing the placeholder paragraph.
+        columns: Names of the columns to put in the table, in order.
         items: Items to list, in order.
-        columns: Table column definitions.
 
     Returns:
         The .docx file contents.
@@ -109,31 +113,33 @@ def render_to_bytes(
         DocgenError: See :func:`generate_declared_list`.
     """
     buf = BytesIO()
-    build_document(template_path, items, columns).save(buf)
+    build_document(template_path, columns, items).save(buf)
     return buf.getvalue()
 
 
 def build_document(
     template_path: str | Path,
+    columns: Sequence[str],
     items: Sequence[Item],
-    columns: Sequence[Column] = TABLE_COLUMNS,
 ) -> DocumentType:
     """Load the template and replace the placeholder with the items table.
 
     Args:
         template_path: Word template containing the placeholder paragraph.
+        columns: Names of the columns to put in the table, in order.
         items: Items to list, in order.
-        columns: Table column definitions.
 
     Returns:
         The populated document (not yet saved).
 
     Raises:
         DocgenError: If the template is missing/invalid, has no placeholder,
-            or ``items`` is empty.
+            or ``items`` or ``columns`` is empty.
     """
     if not items:
         raise DocgenError("No items selected; nothing to put in the declared list.")
+    if not columns:
+        raise DocgenError("The item database has no columns to export.")
     path = Path(template_path)
     if not path.is_file():
         raise DocgenError(f"Template not found: {path}")
@@ -239,7 +245,7 @@ def _clean(text: str) -> str:
 def _build_table(
     doc: DocumentType,
     items: Sequence[Item],
-    columns: Sequence[Column],
+    columns: Sequence[str],
     width: int,
 ) -> Table:
     """Create the items table (appended at the end; caller moves it).
@@ -247,7 +253,7 @@ def _build_table(
     Args:
         doc: Document that will own the table.
         items: Items to list.
-        columns: Column definitions.
+        columns: Column names (header texts and keys into ``Item.values``).
         width: Total table width in EMU.
 
     Returns:
@@ -257,21 +263,22 @@ def _build_table(
     _apply_borders(table)
     table.autofit = False
 
-    total = sum(c.weight for c in columns)
-    widths = [Emu(int(width * c.weight / total)) for c in columns]
+    weights = column_weights(columns, items)
+    total = sum(weights)
+    widths = [Emu(int(width * w / total)) for w in weights]
 
-    for cell, col in zip(table.rows[0].cells, columns):
-        cell.text = col.header
+    for cell, name in zip(table.rows[0].cells, columns):
+        cell.text = _clean(name)
         for run in cell.paragraphs[0].runs:
             run.bold = True
         _shade(cell, "D9D9D9")
     _mark_header_row(table.rows[0])
 
-    for n, item in enumerate(items, start=1):
+    for item in items:
         row = table.add_row()
         _no_split(row)
-        for cell, col in zip(row.cells, columns):
-            cell.text = _clean(col.value(n, item))
+        for cell, name in zip(row.cells, columns):
+            cell.text = _clean(item.values.get(name, ""))
 
     # Word honours per-cell widths but LibreOffice and others follow the column
     # grid, so set both, plus a fixed layout and total width, to render alike.

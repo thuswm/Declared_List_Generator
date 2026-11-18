@@ -2,21 +2,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  categories, errorMessage, filterItems, headerState, partitionIds, setMany,
+  errorMessage, filterItems, headerState, partitionIds, setMany,
 } from '../../src/dlg/static/logic.js';
 
+const row = (id, name, description, category, supplier = '') => (
+  { id, values: { ID: id, Name: name, Description: description, Category: category, Supplier: supplier } });
 const items = [
-  { id: 'A1', name: 'Hydraulic Pump', description: 'Main pump', category: 'Hydraulics', extra: { Supplier: 'Acme' } },
-  { id: 'B2', name: 'Pressure Sensor', description: 'Transducer', category: 'Sensors', extra: {} },
-  { id: 'C3', name: 'Relief Valve', description: 'Pump protection', category: 'Hydraulics' },
+  row('A1', 'Hydraulic Pump', 'Main pump', 'Hydraulics', 'Acme'),
+  row('B2', 'Pressure Sensor', 'Transducer', 'Sensors'),
+  row('C3', 'Relief Valve', 'Pump protection', 'Hydraulics'),
 ];
-const none = { search: '', category: '', onlySelected: false };
+const none = { search: '', onlySelected: false };
 
 test('filter: no filter returns everything', () => {
   assert.equal(filterItems(items, none, new Set()).length, 3);
 });
 
-test('filter: search is case-insensitive and matches any field incl. extra', () => {
+test('filter: search is case-insensitive and matches any column', () => {
   const ids = (f) => filterItems(items, { ...none, search: f }, new Set()).map((i) => i.id);
   assert.deepEqual(ids('HYDRAULIC'), ['A1', 'C3']);
   assert.deepEqual(ids('acme'), ['A1']);
@@ -29,15 +31,15 @@ test('filter: every search term must match (AND)', () => {
   assert.deepEqual(filterItems(items, { ...none, search: 'pump sensors' }, new Set()), []);
 });
 
-test('filter: category and selected-only combine', () => {
+test('filter: search and selected-only combine', () => {
   const sel = new Set(['A1', 'B2']);
-  const f = { search: '', category: 'Hydraulics', onlySelected: true };
+  const f = { search: 'hydraulics', onlySelected: true };
   assert.deepEqual(filterItems(items, f, sel).map((i) => i.id), ['A1']);
 });
 
-test('categories: unique, non-empty, sorted', () => {
-  assert.deepEqual(categories([...items, { id: 'D', name: 'x', description: '', category: '' }]),
-    ['Hydraulics', 'Sensors']);
+test('filter: works with arbitrary column names', () => {
+  const custom = [{ id: 'P1', values: { 'Part No': 'P1', Mass: '12 kg' } }, { id: 'P2', values: { 'Part No': 'P2' } }];
+  assert.deepEqual(filterItems(custom, { ...none, search: '12 KG' }, new Set()).map((i) => i.id), ['P1']);
 });
 
 test('headerState', () => {

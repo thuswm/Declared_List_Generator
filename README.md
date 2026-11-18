@@ -87,6 +87,7 @@ To open it for editing: `xdg-open ~/.config/dlg/config.toml` (Linux),
 | `template_file` | `templates/declared_list_template.docx`    | Word template                            |
 | `sessions_dir`  | `sessions/` (in the project)               | Folder for session files                 |
 | `output_dir`    | `output/` (in the project)                 | Folder for generated Word documents (used from a later step) |
+| `id_column`     | `ID`                                       | Header of the item-database column holding the unique item IDs |
 | `host`, `port`  | `127.0.0.1`, `8000`                        | Where the server listens                 |
 
 Relative paths in the file are resolved against the folder containing it.
@@ -94,12 +95,14 @@ Windows paths: inside double quotes a backslash must be doubled
 (`"C:\\Data\\items.xlsx"`); single quotes (`'C:\Data\items.xlsx'`) or forward
 slashes (`"C:/Data/items.xlsx"`) also work.
 `--host` / `--port` on the command line override the file. The old `DLG_*`
-environment variables are no longer used.
+environment variables are no longer used. Settings added by a newer version
+are appended to an existing file with their defaults, so you can see and change them.
 
 ## Using it
 
-1. Tick the items that belong on the declared list (search, filter by category,
-   or click a row). The header checkbox selects everything currently shown.
+1. Tick the items that belong on the declared list (search, or click a row).
+   The search covers all shown columns. The header checkbox selects everything
+   currently shown.
 2. Enter a name and **Save** to store the selection as a session; **Load** a
    saved session later.
 3. **Export Word document** downloads `declared_list.docx`.
@@ -108,10 +111,18 @@ The Excel file is re-read on every page load, so you can edit it and refresh.
 
 ## File formats
 
-**Item database (Excel).** First sheet, first row = headers. Required columns:
-`ID` (unique) and `Name`. Optional: `Description`, `Category`. Any other
-column is kept and is searchable, but not shown. Rows without an ID are
-skipped; duplicate IDs are an error.
+**Item database (Excel).** First sheet, first row = headers. The columns of
+the sheet are the columns of the tool: every column with a header is shown in
+the browser table and written to the Word table, in sheet order.
+
+- **ID column:** one column holds a unique ID per item (selections are saved
+  by ID). Its header is set by `id_column` in the configuration file (default
+  `ID`). Rows without an ID are skipped; duplicate IDs are an error.
+- **Omitting a column:** start its header with `#` (e.g. `#Internal note`).
+  The tool then ignores it completely: not shown, not searched, not exported.
+  Columns without a header are ignored too.
+- Two shown columns with the same header are an error.
+- Dates are shown as `YYYY-MM-DD`; whole numbers without a decimal part.
 
 **Session file (JSON).** One readable file per session in `sessions/`:
 
@@ -133,8 +144,9 @@ The file name is a sanitised form of the session name.
 `{{DECLARED_LIST}}` where the table should go. The table is inserted there and
 inherits that section's page setup, so put the placeholder in a **landscape
 section** (with portrait sections before and after, as in the example
-template). The table has a repeating header row. Change the columns in
-`TABLE_COLUMNS` in `src/dlg/docgen.py`.
+template). The table has a repeating header row and exactly the shown
+(non-`#`) columns of the item database; column widths follow the length of
+their content.
 
 ## Behaviour worth knowing
 
@@ -157,7 +169,7 @@ node --test tests/js      # JS tests alone (needs Node.js)
 ```
 src/dlg/
   config.py        per-user config file
-  models.py        Item and Session models
+  models.py        Column, Item, ItemTable and Session models
   sources/         ItemSource interface and the Excel implementation
   sessions.py      session JSON storage
   docgen.py        Word generation
@@ -168,4 +180,4 @@ PLAN.md                  design decisions and progress log
 ```
 
 Swapping the item database later means writing another class with a
-`name` and `load_items()` (see `sources/base.py`) and using it in `app.py`.
+`name` and `load()` returning an `ItemTable` (see `sources/base.py`) and using it in `app.py`.

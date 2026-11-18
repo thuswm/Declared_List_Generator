@@ -5,8 +5,8 @@ Keep this file short (about one screen). Details live elsewhere:
 
 ## Status
 - **Released:** `v0.1.0` (2026-11-17) – first workable version. Full history: [docs/archive/release-0.1.0-plan.md](docs/archive/release-0.1.0-plan.md).
-- **Current:** Release 0.2.0 in progress on branch `release/0.2.0` (steps 1–2 of 11 done). Plan revised 2026-11-18 after the Windows test (approved).
-- **Next step:** step 3 – columns from the Excel file (`id_column` setting, `#` omit marker, data-driven GUI and Word tables).
+- **Current:** Release 0.2.0 in progress on branch `release/0.2.0` (steps 1–3 of 11 done). Plan revised 2026-11-18 after the Windows test (approved).
+- **Next step:** step 4 – Excel-style column filters in the GUI.
 
 ## Release 0.2.0 – plan
 Design decisions for this release: [docs/decisions.md](docs/decisions.md) (sections "0.2.0 …").
@@ -14,7 +14,7 @@ Design decisions for this release: [docs/decisions.md](docs/decisions.md) (secti
 ### Steps (each: implement → test → tick here → log decisions)
 1. [x] **Config file (done 2026-11-17, 61 tests pass):** platform path resolver, load/create-with-defaults, writer, `--config`; env vars removed.
 2. [x] **README for Linux and Windows (done 2026-11-18):** setup/run commands for both (PowerShell + cmd: `.venv\Scripts\python`, quoting of `.[dev]`), config file location on both.
-3. [ ] **Columns from the Excel file:** `id_column` setting (default `ID`); item = ID + ordered column values; headers starting with `#` ignored everywhere; API returns the column list; GUI table and Word table built from it (Word: exactly the non-omitted Excel columns, no extra `No.` column; widths from content length); remove hard-coded `TABLE_COLUMNS`, `Item.name/description/category` and the category dropdown; v1 sessions still load (they store IDs only); tests.
+3. [x] **Columns from the Excel file (done 2026-11-18, 71 Python + 9 JS tests pass):** `id_column` setting (default `ID`); item = ID + ordered column values; headers starting with `#` ignored everywhere; API returns the column list; GUI table and Word table built from it (Word: exactly the non-omitted Excel columns, no extra `No.` column; widths from content length); remove hard-coded `TABLE_COLUMNS`, `Item.name/description/category` and the category dropdown; v1 sessions still load (they store IDs only); tests.
 4. [ ] **Excel-style column filters:** filter button per column header → list of distinct values with checkboxes + text box; filters combine (AND) with the global search and "only selected"; active filters visible and clearable; logic in `logic.js` with Node tests.
 5. [ ] **Session schema v2:** `configuration_name`, `user_values`, v1 → v2 migration on load, name-collision fix; tests.
 6. [ ] **Configuration name in GUI:** field when saving; shown in the session load list and in the header after loading.

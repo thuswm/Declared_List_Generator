@@ -1,7 +1,7 @@
 """Pydantic data models shared across the Declared List Generator.
 
-Defines the selectable ``Item`` read from the item database and the
-``Session`` that stores a user's selection so it can be reloaded later.
+Defines the item database contents (``ItemTable`` of ``Column`` and ``Item``)
+and the ``Session`` that stores a user's selection so it can be reloaded later.
 """
 
 from __future__ import annotations
@@ -23,22 +23,46 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class Item(BaseModel):
-    """A selectable item from the item database.
+class Column(BaseModel):
+    """A column of the item database that the tool shows and exports.
 
     Attributes:
-        id: Unique identifier of the item within the database.
-        name: Short display name.
-        description: Longer free-text description.
-        category: Grouping label used for filtering.
-        extra: Any additional spreadsheet columns, keyed by header name.
+        name: Header text from the database.
+    """
+
+    name: str
+
+
+class Item(BaseModel):
+    """A selectable item (one row of the item database).
+
+    Attributes:
+        id: Unique identifier of the item (value of the configured ID column).
+        values: Cell text per column name, for every shown column, in column
+            order (empty string for empty cells). Includes the ID column.
     """
 
     id: str
-    name: str
-    description: str = ""
-    category: str = ""
-    extra: dict[str, str] = Field(default_factory=dict)
+    values: dict[str, str] = Field(default_factory=dict)
+
+
+class ItemTable(BaseModel):
+    """The contents of the item database as shown in the tool.
+
+    Attributes:
+        id_column: Name of the column holding the unique item IDs.
+        columns: Shown columns, in database order (omitted columns excluded).
+        items: All items, in database order.
+    """
+
+    id_column: str
+    columns: list[Column]
+    items: list[Item]
+
+    @property
+    def column_names(self) -> list[str]:
+        """Names of the shown columns, in order."""
+        return [c.name for c in self.columns]
 
 
 class Session(BaseModel):

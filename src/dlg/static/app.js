@@ -4,12 +4,13 @@
  * Talks to the FastAPI backend (/api/...). Item text is only ever inserted
  * with textContent, never innerHTML, so spreadsheet content cannot inject markup.
  */
-import { categories, errorMessage, filterItems, headerState, partitionIds, setMany } from './logic.js';
+import { errorMessage, filterItems, headerState, partitionIds, setMany } from './logic.js';
 
 const state = {
+  columns: [], // shown column names, in database order
   items: [],
   selected: new Set(),
-  filter: { search: '', category: '', onlySelected: false },
+  filter: { search: '', onlySelected: false },
   sessions: [],
   sessionName: '', // name of the session last loaded or saved
   dirty: false, // selection changed since last load/save
@@ -18,7 +19,7 @@ const state = {
 const $ = (id) => document.getElementById(id);
 const el = {
   source: $('source'), status: $('status'), rows: $('rows'), empty: $('empty'),
-  search: $('search'), category: $('category'), onlySelected: $('only-selected'),
+  search: $('search'), onlySelected: $('only-selected'), headRow: $('head-row'),
   clear: $('clear-btn'), count: $('count'), exportBtn: $('export-btn'),
   selectVisible: $('select-visible'), sessionName: $('session-name'),
   sessionList: $('session-list'), save: $('save-btn'), load: $('load-btn'), del: $('delete-btn'),
@@ -113,8 +114,7 @@ function renderRows() {
     cb.setAttribute('aria-label', `Select ${item.id}`);
     td.append(cb);
 
-    tr.append(td, make('td', item.id), make('td', item.name),
-      make('td', item.description), make('td', item.category));
+    tr.append(td, ...state.columns.map((c) => make('td', item.values[c] ?? '')));
     frag.append(tr);
   }
   el.rows.replaceChildren(frag);
@@ -146,15 +146,14 @@ function changeSelection(next) {
   state.dirty = true;
 }
 
-/** Rebuild the category dropdown, keeping the current choice if still valid. */
-function renderCategories() {
-  const cats = categories(state.items);
-  const current = state.filter.category;
-  const options = [new Option('All categories', '')];
-  for (const c of cats) options.push(new Option(c, c));
-  el.category.replaceChildren(...options);
-  el.category.value = cats.includes(current) ? current : '';
-  state.filter.category = el.category.value;
+/** Rebuild the column headers (after the select-all checkbox) from the database columns. */
+function renderHeader() {
+  const check = el.headRow.firstElementChild;
+  el.headRow.replaceChildren(check, ...state.columns.map((c) => {
+    const th = make('th', c);
+    th.scope = 'col';
+    return th;
+  }));
 }
 
 /** Rebuild the saved-sessions dropdown. */
@@ -292,7 +291,6 @@ function bindEvents() {
     renderRows();
   });
   el.search.addEventListener('input', () => { state.filter.search = el.search.value; renderRows(); });
-  el.category.addEventListener('change', () => { state.filter.category = el.category.value; renderRows(); });
   el.onlySelected.addEventListener('change', () => {
     state.filter.onlySelected = el.onlySelected.checked;
     renderRows();
@@ -312,9 +310,10 @@ async function init() {
   bindEvents();
   try {
     const data = await api('/api/items');
+    state.columns = data.columns.map((c) => c.name);
     state.items = data.items;
     el.source.textContent = `Database: ${data.source}`;
-    renderCategories();
+    renderHeader();
     renderRows();
     await refreshSessions();
   } catch (err) {

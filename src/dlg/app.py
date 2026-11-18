@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from dlg.config import Config
 from dlg.docgen import DocgenError, render_to_bytes
-from dlg.models import Item, Session
+from dlg.models import Column, Item, ItemTable, Session
 from dlg.sessions import SessionError, SessionNotFoundError, SessionStore
 from dlg.sources.excel import ExcelItemSource, ItemSourceError
 
@@ -28,10 +28,14 @@ class ItemsResponse(BaseModel):
 
     Attributes:
         source: Name of the item database.
+        id_column: Name of the column holding the unique item IDs.
+        columns: Shown columns, in database order.
         items: All selectable items.
     """
 
     source: str
+    id_column: str
+    columns: list[Column]
     items: list[Item]
 
 
@@ -84,28 +88,31 @@ def create_app(settings: Config | None = None) -> FastAPI:
         The configured application.
     """
     cfg = settings or Config()
-    source = ExcelItemSource(cfg.items_file)
+    source = ExcelItemSource(cfg.items_file, id_column=cfg.id_column)
     store = SessionStore(cfg.sessions_dir)
     app = FastAPI(title="Declared List Generator")
 
-    def load_items() -> list[Item]:
+    def load_table() -> ItemTable:
         """Read the item database (fresh each call so file edits show up).
 
         Returns:
-            All items.
+            Columns and items.
 
         Raises:
             HTTPException: 500 if the database is missing or malformed.
         """
         try:
-            return source.load_items()
+            return source.load()
         except ItemSourceError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.get("/api/items", response_model=ItemsResponse)
     def get_items() -> ItemsResponse:
         """Return all selectable items."""
-        return ItemsResponse(source=source.name, items=load_items())
+        table = load_table()
+        return ItemsResponse(
+            source=source.name, id_column=table.id_column, columns=table.columns, items=table.items
+        )
 
     @app.get("/api/sessions", response_model=list[SessionSummary])
     def list_sessions() -> list[SessionSummary]:
@@ -162,13 +169,15 @@ def create_app(settings: Config | None = None) -> FastAPI:
         """
         if not req.selected_ids:
             raise HTTPException(status_code=400, detail="No items selected.")
-        items = load_items()
+        table = load_table()
         wanted = set(req.selected_ids)
-        unknown = sorted(wanted - {i.id for i in items})
+        unknown = sorted(wanted - {i.id for i in table.items})
         if unknown:
             raise HTTPException(status_code=422, detail=f"Unknown item IDs: {', '.join(unknown)}")
         try:
-            data = render_to_bytes(cfg.template_file, [i for i in items if i.id in wanted])
+            data = render_to_bytes(
+                cfg.template_file, table.column_names, [i for i in table.items if i.id in wanted]
+            )
         except DocgenError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return Response(

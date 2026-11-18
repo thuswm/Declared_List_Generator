@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from dlg.models import Item
+from dlg.models import ItemTable
 
 
 class ItemSource(Protocol):
@@ -17,10 +17,10 @@ class ItemSource(Protocol):
     #: Short name of the underlying database (e.g. the filename).
     name: str
 
-    def load_items(self) -> list[Item]:
-        """Load all selectable items.
+    def load(self) -> ItemTable:
+        """Load the shown columns and all selectable items.
 
         Returns:
-            All items, in database order.
+            Columns and items, in database order.
         """
         ...

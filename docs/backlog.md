@@ -14,5 +14,6 @@ See `PLAN.md` (Release 0.2.0).
 - Cache the Excel read if the database grows large.
 
 ## Known issues / checks
-- Real Word template from the user: placeholder `{{DECLARED_LIST}}` in a landscape section (columns now come from the Excel file, see 0.2.0 step 3).
+- Real Word template from the user: placeholder `{{DECLARED_LIST}}` in a landscape section.
+- Many columns may not fit the landscape width; consider a smaller table font or optional per-column width hints if the real database needs it.
 - Session-name collisions (`a/b` vs `a_b`) share one file.

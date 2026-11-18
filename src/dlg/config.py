@@ -52,6 +52,7 @@ class Config:
         template_file: Word template containing the placeholder.
         sessions_dir: Folder for session JSON files.
         output_dir: Folder where generated Word documents are written.
+        id_column: Header of the item-database column holding the unique item IDs.
         host: Interface the server binds to (localhost: no authentication).
         port: Port the server listens on.
     """
@@ -60,6 +61,7 @@ class Config:
     template_file: Path = field(default_factory=lambda: _default_path("templates/declared_list_template.docx"))
     sessions_dir: Path = field(default_factory=lambda: _default_path("sessions"))
     output_dir: Path = field(default_factory=lambda: _default_path("output"))
+    id_column: str = "ID"
     host: str = "127.0.0.1"
     port: int = 8000
 
@@ -153,6 +155,8 @@ def load_config(path: Path | None = None) -> Config:
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(f"Configuration file {path} is not valid TOML: {exc}") from exc
 
+    _append_missing_keys(path, data)
+
     config = Config()
     for f in fields(config):
         if f.name not in data:
@@ -168,4 +172,34 @@ def load_config(path: Path | None = None) -> Config:
         setattr(config, f.name, value)
     if not 1 <= config.port <= 65535:
         raise ConfigError(f"Configuration file {path}: 'port' must be between 1 and 65535.")
+    if not config.id_column.strip():
+        raise ConfigError(f"Configuration file {path}: 'id_column' must not be empty.")
+    config.id_column = config.id_column.strip()
     return config
+
+
+def _append_missing_keys(path: Path, data: dict[str, Any]) -> None:
+    """Append settings added in newer versions to an existing file, with defaults.
+
+    Appending (instead of rewriting) keeps the user's own edits and comments,
+    while making new settings visible in the file so they can be changed.
+    Failure to write is ignored: defaults still apply in memory.
+
+    Args:
+        path: Configuration file that was just read.
+        data: Its parsed contents.
+    """
+    defaults = Config()
+    missing = [f for f in fields(defaults) if f.name not in data]
+    if not missing:
+        return
+    lines = ["", "# Added by a newer version of the tool (defaults):"]
+    for f in missing:
+        value = getattr(defaults, f.name)
+        lines.append(f"{f.name} = {_toml_value(str(value) if isinstance(value, Path) else value)}")
+    try:
+        text = path.read_text(encoding="utf-8")
+        sep = "" if text.endswith("\n") or not text else "\n"
+        path.write_text(text + sep + "\n".join(lines) + "\n", encoding="utf-8")
+    except OSError:
+        pass

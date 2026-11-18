@@ -1,59 +1,87 @@
-"""Excel (.xlsx) implementation of :class:`~dlg.sources.base.ItemSource`."""
+"""Excel (.xlsx) implementation of :class:`~dlg.sources.base.ItemSource`.
+
+Header conventions (first row of the first sheet):
+
+* Every column with a non-empty header is shown and exported, in sheet order.
+* A header starting with ``#`` (e.g. ``#Internal note``) marks a column the
+  tool ignores completely.
+* One column, named by the ``id_column`` setting, holds unique item IDs.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import date, datetime, time
 from pathlib import Path
 
 from openpyxl import load_workbook
 
-from dlg.models import Item
+from dlg.models import Column, Item, ItemTable
 
-#: Default mapping of Item fields to Excel header names.
-DEFAULT_COLUMNS: dict[str, str] = {
-    "id": "ID",
-    "name": "Name",
-    "description": "Description",
-    "category": "Category",
-}
+#: Default name of the column holding the unique item IDs.
+DEFAULT_ID_COLUMN = "ID"
+
+#: Header prefix marking a column that the tool ignores.
+OMIT_MARKER = "#"
 
 
 class ItemSourceError(Exception):
     """Raised when the item database is missing, malformed or inconsistent."""
 
 
+def cell_text(value: object) -> str:
+    """Convert an Excel cell value to display text.
+
+    Dates without a time of day are shown as ``YYYY-MM-DD`` rather than with a
+    ``00:00:00`` suffix, and whole-number floats lose the ``.0`` that Excel's
+    number storage would otherwise add.
+
+    Args:
+        value: Raw value as returned by openpyxl.
+
+    Returns:
+        Stripped text ('' for empty cells).
+    """
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.date().isoformat() if value.time() == time(0) else value.isoformat(sep=" ")
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
 class ExcelItemSource:
     """Reads items from the first sheet of an Excel workbook.
 
-    The first row must contain headers. Columns not in the column map are kept
-    in ``Item.extra``. Rows with an empty ID are skipped.
-
     Attributes:
         path: Location of the workbook.
-        columns: Mapping of Item field name to Excel header name.
+        id_column: Header of the column holding the unique item IDs.
         name: Filename of the workbook.
     """
 
-    def __init__(self, path: str | Path, columns: dict[str, str] | None = None) -> None:
+    def __init__(self, path: str | Path, id_column: str = DEFAULT_ID_COLUMN) -> None:
         """Initialise the source.
 
         Args:
             path: Path to the .xlsx file.
-            columns: Optional override of the field-to-header mapping.
+            id_column: Header of the ID column.
         """
         self.path = Path(path)
-        self.columns = columns or DEFAULT_COLUMNS
+        self.id_column = id_column
         self.name = self.path.name
 
-    def load_items(self) -> list[Item]:
-        """Load all items from the workbook.
+    def load(self) -> ItemTable:
+        """Load the shown columns and all items from the workbook.
 
         Returns:
-            Items in sheet order.
+            Columns and items in sheet order.
 
         Raises:
-            ItemSourceError: If the file is missing or unreadable, a required
-                header is absent, or an ID appears more than once.
+            ItemSourceError: If the file is missing or unreadable, the ID column
+                is absent, a header appears twice, or an ID appears twice.
         """
         if not self.path.is_file():
             raise ItemSourceError(f"Item database not found: {self.path}")
@@ -66,80 +94,68 @@ class ExcelItemSource:
             rows = wb.worksheets[0].iter_rows(values_only=True)
             header = next(rows, None)
             if header is None:
-                return []
-            index = self._header_index(header)
-            return self._parse_rows(rows, index, header)
+                raise ItemSourceError(f"{self.name} is empty (no header row).")
+            positions = self._shown_columns(header)
+            items = self._parse_rows(rows, positions)
         finally:
             wb.close()
+        return ItemTable(
+            id_column=self.id_column,
+            columns=[Column(name=n) for n in positions],
+            items=items,
+        )
 
-    def _header_index(self, header: tuple) -> dict[str, int]:
-        """Map each Item field to its column position.
+    def _shown_columns(self, header: tuple) -> dict[str, int]:
+        """Work out which columns are shown and where they are.
 
         Args:
             header: The first row of the sheet.
 
         Returns:
-            Field name to zero-based column index.
+            Column name to zero-based sheet index, in sheet order.
 
         Raises:
-            ItemSourceError: If a required header (ID, Name) is missing.
+            ItemSourceError: If a header is duplicated or the ID column is missing.
         """
-        positions = {str(h).strip(): i for i, h in enumerate(header) if h is not None}
-        index: dict[str, int] = {}
-        for field, header_name in self.columns.items():
-            if header_name in positions:
-                index[field] = positions[header_name]
-            elif field in ("id", "name"):
-                raise ItemSourceError(
-                    f"Required column '{header_name}' not found in {self.name}"
-                )
-        return index
+        positions: dict[str, int] = {}
+        for i, raw in enumerate(header):
+            name = cell_text(raw)
+            if not name or name.startswith(OMIT_MARKER):
+                continue
+            if name in positions:
+                raise ItemSourceError(f"Column '{name}' appears more than once in {self.name}.")
+            positions[name] = i
+        if self.id_column not in positions:
+            shown = ", ".join(positions) or "(none)"
+            raise ItemSourceError(
+                f"ID column '{self.id_column}' not found in {self.name}. "
+                f"Set 'id_column' in your configuration file to one of: {shown}."
+            )
+        return positions
 
-    def _parse_rows(
-        self, rows: Iterator[tuple], index: dict[str, int], header: tuple
-    ) -> list[Item]:
+    def _parse_rows(self, rows: Iterator[tuple], positions: dict[str, int]) -> list[Item]:
         """Convert sheet rows to Items.
 
         Args:
             rows: Iterator of data rows (header already consumed).
-            index: Field name to column index.
-            header: The header row, used to name extra columns.
+            positions: Shown column name to sheet index.
 
         Returns:
-            Parsed items.
+            Parsed items; rows with an empty ID are skipped.
 
         Raises:
             ItemSourceError: On duplicate IDs.
         """
-        mapped = set(index.values())
         items: list[Item] = []
         seen: set[str] = set()
-
-        def cell(row: tuple, i: int) -> str:
-            """Return a cell as a stripped string ('' if empty or out of range)."""
-            if i >= len(row) or row[i] is None:
-                return ""
-            return str(row[i]).strip()
-
         for row in rows:
-            item_id = cell(row, index["id"])
+            # Rows can be shorter than the header when trailing cells are empty.
+            values = {n: cell_text(row[i]) if i < len(row) else "" for n, i in positions.items()}
+            item_id = values[self.id_column]
             if not item_id:
                 continue  # blank/spacer row
             if item_id in seen:
-                raise ItemSourceError(f"Duplicate item ID '{item_id}' in {self.name}")
+                raise ItemSourceError(f"Duplicate item ID '{item_id}' in {self.name}.")
             seen.add(item_id)
-            extra = {
-                str(header[i]).strip(): cell(row, i)
-                for i in range(len(header))
-                if i not in mapped and header[i] is not None and cell(row, i)
-            }
-            items.append(
-                Item(
-                    id=item_id,
-                    name=cell(row, index["name"]),
-                    description=cell(row, index["description"]) if "description" in index else "",
-                    category=cell(row, index["category"]) if "category" in index else "",
-                    extra=extra,
-                )
-            )
+            items.append(Item(id=item_id, values=values))
         return items
