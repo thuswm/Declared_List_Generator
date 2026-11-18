@@ -18,6 +18,30 @@
   <div id="status" class="status" role="status" aria-live="polite" hidden></div>
 
   <main>
+    <details id="settings" class="panel settings">
+      <summary><h2>Settings</h2></summary>
+      <div class="row">
+        <label for="items-file">Item database</label>
+        <input id="items-file" type="text" class="wide path" spellcheck="false" placeholder="Full path to the .xlsx file">
+        <button id="items-browse" type="button">Browse…</button>
+      </div>
+      <div class="row">
+        <label for="id-column">ID column</label>
+        <input id="id-column" type="text" maxlength="200" spellcheck="false"
+               placeholder="Header of the column with unique item IDs">
+      </div>
+      <div class="row">
+        <label for="output-dir">Output folder</label>
+        <input id="output-dir" type="text" class="wide path" spellcheck="false" placeholder="Folder for generated Word documents">
+        <button id="output-browse" type="button">Browse…</button>
+      </div>
+      <div class="row">
+        <span class="label-gap"></span>
+        <button id="settings-save" type="button" class="accent">Save settings</button>
+        <span id="config-file" class="muted small"></span>
+      </div>
+    </details>
+
     <section class="panel" aria-labelledby="session-heading">
       <h2 id="session-heading">Session</h2>
       <div class="row">
@@ -64,6 +88,26 @@
       </div>
     </section>
   </main>
+
+  <!-- File/folder chooser; the server lists the folders (browsers cannot reveal real paths). -->
+  <dialog id="browse-dialog" class="browse-dialog" aria-labelledby="browse-title">
+    <h2 id="browse-title"></h2>
+    <div class="row">
+      <label for="browse-roots" class="sr-only">Go to</label>
+      <select id="browse-roots"></select>
+      <button id="browse-up" type="button" title="Parent folder">↑ Up</button>
+      <label for="browse-path" class="sr-only">Folder</label>
+      <input id="browse-path" type="text" class="wide path" spellcheck="false">
+      <button id="browse-go" type="button">Go</button>
+    </div>
+    <ul id="browse-list" class="browse-list" aria-label="Folder contents"></ul>
+    <p id="browse-error" class="browse-error" role="alert" hidden></p>
+    <div class="row browse-actions">
+      <span id="browse-choice" class="muted path"></span>
+      <button id="browse-cancel" type="button">Cancel</button>
+      <button id="browse-select" type="button" class="accent">Select</button>
+    </div>
+  </dialog>
 
   <!-- Excel-style filter for one column; opened from a header's filter button. -->
   <div id="filter-panel" class="filter-panel" role="dialog" aria-labelledby="filter-title" hidden>

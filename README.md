@@ -91,6 +91,7 @@ To open it for editing: `xdg-open ~/.config/dlg/config.toml` (Linux),
 | `host`, `port`  | `127.0.0.1`, `8000`                        | Where the server listens                 |
 
 Relative paths in the file are resolved against the folder containing it.
+Saving settings in the GUI rewrites the file (your own comments in it are lost).
 Windows paths: inside double quotes a backslash must be doubled
 (`"C:\\Data\\items.xlsx"`); single quotes (`'C:\Data\items.xlsx'`) or forward
 slashes (`"C:/Data/items.xlsx"`) also work.
@@ -99,6 +100,14 @@ environment variables are no longer used. Settings added by a newer version
 are appended to an existing file with their defaults, so you can see and change them.
 
 ## Using it
+
+**Settings** (collapsible panel at the top): choose the **Item database**
+(.xlsx) and the **Output folder** with **Browse…**, set the **ID column**, and
+**Save settings**. They are written to your configuration file and take effect
+immediately: the new database is loaded, and selected items that are not in it
+are deselected. If the database cannot be loaded at start-up, the panel opens
+by itself so the path or ID column can be fixed. Settings and browsing only
+work from the computer running the tool.
 
 1. Tick the items that belong on the declared list (click the checkbox or the
    row). The header checkbox selects everything currently shown.
@@ -196,6 +205,7 @@ src/dlg/
   models.py        Column, Item, ItemTable and Session models
   sources/         ItemSource interface and the Excel implementation
   sessions.py      session JSON storage
+  filebrowser.py   folder listing for the Browse dialog
   docgen.py        Word generation
   app.py           FastAPI routes + static GUI
   static/          index.html, app.js, logic.js, style.css

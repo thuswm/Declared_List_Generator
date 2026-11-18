@@ -145,7 +145,7 @@ class ExcelItemSource:
             shown = ", ".join(positions) or "(none)"
             raise ItemSourceError(
                 f"ID column '{self.id_column}' not found in {self.name}. "
-                f"Set 'id_column' in your configuration file to one of: {shown}."
+                f"Set the ID column in Settings ('id_column' in the configuration file) to one of: {shown}."
             )
         return columns, positions
 

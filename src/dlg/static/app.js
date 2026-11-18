@@ -24,6 +24,7 @@ const state = {
   sessionName: '', // name of the session last loaded or saved
   configurationName: '', // configuration name of that session, as last loaded or saved
   userValues: {}, // values typed in user-input columns: {itemId: {column: value}}
+  savedDatabase: '', // item database path + ID column as last saved (detects a change)
   dirty: false, // selection changed since last load/save
 };
 
@@ -34,6 +35,12 @@ const el = {
   clearFilters: $('clear-filters-btn'), panel: $('filter-panel'), panelTitle: $('filter-title'),
   panelQuery: $('filter-query'), panelAll: $('filter-all'), panelValues: $('filter-values'),
   panelOk: $('filter-ok'), panelCancel: $('filter-cancel'), panelClear: $('filter-clear'),
+  settings: $('settings'), itemsFile: $('items-file'), idColumn: $('id-column'), outputDir: $('output-dir'),
+  itemsBrowse: $('items-browse'), outputBrowse: $('output-browse'), settingsSave: $('settings-save'),
+  configFile: $('config-file'), browse: $('browse-dialog'), browseTitle: $('browse-title'),
+  browseRoots: $('browse-roots'), browseUp: $('browse-up'), browsePath: $('browse-path'), browseGo: $('browse-go'),
+  browseList: $('browse-list'), browseError: $('browse-error'), browseChoice: $('browse-choice'),
+  browseCancel: $('browse-cancel'), browseSelect: $('browse-select'),
   clear: $('clear-btn'), count: $('count'), exportBtn: $('export-btn'),
   selectVisible: $('select-visible'), sessionName: $('session-name'), configName: $('config-name'),
   current: $('current'),
@@ -500,9 +507,194 @@ async function exportDocument() {
   }
 }
 
+/**
+ * Put settings into the panel and remember which database they describe.
+ * @param {{items_file:string,id_column:string,output_dir:string}} cfg Settings from the server.
+ */
+function showSettings(cfg) {
+  el.itemsFile.value = cfg.items_file;
+  el.idColumn.value = cfg.id_column;
+  el.outputDir.value = cfg.output_dir;
+  state.savedDatabase = `${cfg.items_file}\n${cfg.id_column}`;
+}
+
+/** Fill the settings panel from the server. */
+async function loadSettings() {
+  try {
+    const cfg = await api('/api/settings');
+    showSettings(cfg);
+    el.configFile.textContent = cfg.config_file ? `Saved in ${cfg.config_file}` : '';
+  } catch (err) {
+    showStatus(err.message, 'error');
+  }
+}
+
+/** Save the settings; reload the items if the database changed. */
+async function saveSettings() {
+  el.settingsSave.disabled = true;
+  try {
+    const before = state.savedDatabase;
+    const cfg = await sendJson('/api/settings', 'PUT', {
+      items_file: el.itemsFile.value.trim(),
+      id_column: el.idColumn.value.trim(),
+      output_dir: el.outputDir.value.trim(),
+    });
+    showSettings(cfg);
+    if (state.savedDatabase === before && state.items.length) {
+      showStatus('Settings saved.');
+      return;
+    }
+    try {
+      const dropped = await loadItems();
+      if (dropped.length) {
+        showStatus(`Settings saved. ${dropped.length} selected item(s) are not in the new database `
+          + `and were deselected: ${dropped.join(', ')}`, 'warn');
+      } else {
+        showStatus(`Settings saved. Loaded ${state.items.length} items from the new database.`);
+      }
+    } catch (err) {
+      state.items = [];
+      state.columns = [];
+      el.source.textContent = `Database: ${cfg.items_file.split(/[\\/]/).pop()} (not loaded)`;
+      renderHeader();
+      renderRows();
+      showStatus(`Settings saved, but the database cannot be used: ${err.message}`, 'error');
+    }
+  } catch (err) {
+    showStatus(err.message, 'error');
+  } finally {
+    el.settingsSave.disabled = false;
+  }
+}
+
+// ---- Browse dialog -------------------------------------------------------
+
+/** State of the open browse dialog. */
+const browse = { files: true, path: '', chosen: '', onChoose: null };
+
+/**
+ * Open the browse dialog.
+ * @param {{title:string, files:boolean, start:string, onChoose:(path:string)=>void}} opts
+ *   `files`: choose an .xlsx file (true) or a folder (false); `start`: folder or file to open at.
+ */
+function openBrowse({ title, files, start, onChoose }) {
+  Object.assign(browse, { files, chosen: '', onChoose });
+  el.browseTitle.textContent = title;
+  el.browseSelect.textContent = files ? 'Select file' : 'Select this folder';
+  el.browse.showModal();
+  navigate(start);
+}
+
+/**
+ * Show a folder in the dialog.
+ * @param {string} path Folder (or file) to show; '' for the home folder.
+ */
+async function navigate(path) {
+  el.browseError.hidden = true;
+  try {
+    const q = new URLSearchParams({ path, files: String(browse.files) });
+    const listing = await api(`/api/fs?${q}`);
+    browse.path = listing.path;
+    // Keep the chosen file when (re)opening at it; otherwise reset the choice.
+    if (!browse.files || !listing.files.some((f) => f.path === path)) browse.chosen = '';
+    else browse.chosen = path;
+    el.browsePath.value = listing.path;
+    el.browseUp.disabled = !listing.parent;
+    el.browseUp.dataset.path = listing.parent || '';
+    el.browseRoots.replaceChildren(new Option('Go to…', ''),
+      ...listing.roots.map((r) => new Option(r.name, r.path)));
+    renderBrowseList(listing);
+  } catch (err) {
+    el.browseError.textContent = err.message;
+    el.browseError.hidden = false;
+  }
+  updateBrowseChoice();
+}
+
+/**
+ * Render the folders and files of a listing.
+ * @param {{dirs:Array<{name:string,path:string}>, files:Array<{name:string,path:string}>}} listing
+ */
+function renderBrowseList(listing) {
+  const items = [
+    ...listing.dirs.map((d) => ({ ...d, dir: true })),
+    ...listing.files.map((f) => ({ ...f, dir: false })),
+  ];
+  const frag = document.createDocumentFragment();
+  for (const entry of items) {
+    const li = make('li');
+    const btn = make('button', `${entry.dir ? '📁' : '📄'} ${entry.name}`);
+    btn.type = 'button';
+    btn.dataset.path = entry.path;
+    btn.dataset.dir = String(entry.dir);
+    btn.classList.toggle('chosen', entry.path === browse.chosen);
+    li.append(btn);
+    frag.append(li);
+  }
+  if (items.length === 0) {
+    frag.append(make('li', browse.files ? 'No folders or .xlsx files here.' : 'No sub-folders here.', 'empty'));
+  }
+  el.browseList.replaceChildren(frag);
+}
+
+/** Show what "Select" will pick and enable it accordingly. */
+function updateBrowseChoice() {
+  const pick = browse.files ? browse.chosen : browse.path;
+  el.browseChoice.textContent = pick || (browse.files ? 'Choose an .xlsx file' : '');
+  el.browseSelect.disabled = !pick;
+}
+
+/** Finish the dialog with the current choice. */
+function chooseBrowse() {
+  const pick = browse.files ? browse.chosen : browse.path;
+  if (!pick) return;
+  el.browse.close();
+  browse.onChoose(pick);
+}
+
+/** Wire up the settings panel and the browse dialog. */
+function bindSettingsEvents() {
+  el.settingsSave.addEventListener('click', saveSettings);
+  el.itemsBrowse.addEventListener('click', () => openBrowse({
+    title: 'Choose the item database (.xlsx)', files: true, start: el.itemsFile.value.trim(),
+    onChoose: (p) => { el.itemsFile.value = p; el.settingsSave.focus(); },
+  }));
+  el.outputBrowse.addEventListener('click', () => openBrowse({
+    title: 'Choose the output folder', files: false, start: el.outputDir.value.trim(),
+    onChoose: (p) => { el.outputDir.value = p; el.settingsSave.focus(); },
+  }));
+  el.browseList.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.dataset.dir === 'true') {
+      navigate(btn.dataset.path);
+      return;
+    }
+    browse.chosen = btn.dataset.path;
+    for (const b of el.browseList.querySelectorAll('button')) b.classList.toggle('chosen', b === btn);
+    updateBrowseChoice();
+  });
+  el.browseList.addEventListener('dblclick', (e) => {
+    const btn = e.target.closest('button');
+    if (btn && btn.dataset.dir === 'false') chooseBrowse();
+  });
+  el.browseUp.addEventListener('click', () => navigate(el.browseUp.dataset.path));
+  el.browseRoots.addEventListener('change', () => { if (el.browseRoots.value) navigate(el.browseRoots.value); });
+  el.browseGo.addEventListener('click', () => navigate(el.browsePath.value.trim()));
+  el.browsePath.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault(); // Enter would otherwise close the dialog
+      navigate(el.browsePath.value.trim());
+    }
+  });
+  el.browseCancel.addEventListener('click', () => el.browse.close());
+  el.browseSelect.addEventListener('click', chooseBrowse);
+}
+
 /** Wire up all event handlers. */
 function bindEvents() {
   bindFilterEvents();
+  bindSettingsEvents();
   el.rows.addEventListener('change', (e) => {
     const tr = e.target.closest('tr');
     if (!tr || e.target.type !== 'checkbox') return; // text cells are handled by 'input'
@@ -558,20 +750,43 @@ function bindEvents() {
   window.addEventListener('beforeunload', (e) => { if (state.dirty) e.preventDefault(); });
 }
 
+/**
+ * Fetch the item database and show it. Selected items that no longer exist
+ * are dropped (with a warning), and filters on vanished columns are removed.
+ * @returns {Promise<string[]>} IDs dropped from the selection.
+ */
+async function loadItems() {
+  const data = await api('/api/items');
+  state.columns = data.columns;
+  state.items = data.items;
+  const names = new Set(data.columns.map((c) => c.name));
+  for (const column of Object.keys(state.filter.columns)) {
+    if (!names.has(column)) delete state.filter.columns[column];
+  }
+  const { known, unknown } = partitionIds([...state.selected], state.items);
+  if (unknown.length) changeSelection(new Set(known));
+  el.source.textContent = `Database: ${data.source}`;
+  renderHeader();
+  renderRows();
+  return unknown;
+}
+
 /** Load items and sessions, then show the page. */
 async function init() {
   bindEvents();
+  // Settings first and independently: if the database path is wrong, they are how to fix it.
+  await loadSettings();
   try {
-    const data = await api('/api/items');
-    state.columns = data.columns;
-    state.items = data.items;
-    el.source.textContent = `Database: ${data.source}`;
-    renderHeader();
-    renderRows();
+    await loadItems();
+  } catch (err) {
+    showStatus(`${err.message} – check the item database in Settings.`, 'error');
+    el.settings.open = true;
+    updateSummary();
+  }
+  try {
     await refreshSessions();
   } catch (err) {
     showStatus(err.message, 'error');
-    updateSummary();
   }
 }
 

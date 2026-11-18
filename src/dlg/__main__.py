@@ -15,7 +15,7 @@ from pathlib import Path
 import uvicorn
 
 from dlg.app import create_app
-from dlg.config import ConfigError, load_config
+from dlg.config import ConfigError, default_config_path, load_config
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -34,8 +34,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--no-browser", action="store_true", help="do not open the browser")
     args = parser.parse_args(argv)
 
+    config_path = (args.config or default_config_path()).expanduser()
     try:
-        config = load_config(args.config)  # creates the file with defaults on first run
+        config = load_config(config_path)  # creates the file with defaults on first run
     except ConfigError as exc:
         print(f"dlg: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
@@ -46,7 +47,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         # Delay slightly so the server is accepting connections when the tab opens.
         url = f"http://{'localhost' if host == '127.0.0.1' else host}:{port}/"
         threading.Timer(1.0, webbrowser.open, args=(url,)).start()
-    uvicorn.run(create_app(config), host=host, port=port)
+    uvicorn.run(create_app(config, config_path), host=host, port=port)
 
 
 if __name__ == "__main__":

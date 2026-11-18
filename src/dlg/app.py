@@ -9,18 +9,69 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from dlg.config import Config
+from dlg.config import Config, ConfigError, save_config
 from dlg.docgen import DocgenError, render_to_bytes
+from dlg.filebrowser import BrowseError, BrowseNotFoundError, Listing, list_folder
 from dlg.models import Column, Item, ItemTable, Session
 from dlg.sessions import SessionError, SessionNotFoundError, SessionStore
 from dlg.sources.excel import ExcelItemSource, ItemSourceError
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+#: Client addresses treated as "this computer" for the local-only endpoints.
+LOCAL_CLIENTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def require_local(request: Request) -> None:
+    """Refuse requests that do not come from this computer.
+
+    The folder browser and settings reveal and change local paths, so they
+    stay local even if the server is started with ``--host`` on a network.
+
+    Args:
+        request: The incoming request.
+
+    Raises:
+        HTTPException: 403 for any other client.
+    """
+    host = request.client.host if request.client else ""
+    if host not in LOCAL_CLIENTS:
+        raise HTTPException(status_code=403, detail="Only available on the computer running the tool.")
+
+
+class SettingsResponse(BaseModel):
+    """Settings editable in the GUI (``GET``/``PUT /api/settings``).
+
+    Attributes:
+        items_file: Excel item database.
+        id_column: Header of the database column holding the unique item IDs.
+        output_dir: Folder for generated Word documents.
+        config_file: Configuration file the settings are saved to ('' if none).
+    """
+
+    items_file: str
+    id_column: str
+    output_dir: str
+    config_file: str
+
+
+class SettingsUpdate(BaseModel):
+    """Body of ``PUT /api/settings``; absent fields are left unchanged.
+
+    Attributes:
+        items_file: New Excel item database (absolute path to an existing .xlsx).
+        id_column: New ID column header (non-empty).
+        output_dir: New output folder (absolute path to an existing folder).
+    """
+
+    items_file: str | None = None
+    id_column: str | None = Field(default=None, max_length=200)
+    output_dir: str | None = None
 
 
 class ItemsResponse(BaseModel):
@@ -86,20 +137,45 @@ class ExportRequest(BaseModel):
     user_values: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
-def create_app(settings: Config | None = None) -> FastAPI:
+def _checked_path(value: str, label: str) -> Path:
+    """Turn a user-supplied path into an absolute Path.
+
+    Args:
+        value: Path text from the GUI.
+        label: What the path is for (used in error messages).
+
+    Returns:
+        The path.
+
+    Raises:
+        HTTPException: 400 if the path is empty or relative (it would be
+            resolved against the server's working folder, which is surprising).
+    """
+    path = Path(value.strip()).expanduser()
+    if not value.strip() or not path.is_absolute():
+        raise HTTPException(status_code=400, detail=f"{label}: enter a full path, e.g. chosen with Browse.")
+    return path
+
+
+def create_app(settings: Config | None = None, config_path: Path | None = None) -> FastAPI:
     """Build the FastAPI application.
 
     Args:
         settings: Configuration; defaults to the built-in :class:`Config`
             defaults (the per-user file is loaded by the launcher).
+        config_path: File that settings changed in the GUI are saved to;
+            None keeps changes in memory only (used by tests).
 
     Returns:
         The configured application.
     """
     cfg = settings or Config()
-    source = ExcelItemSource(cfg.items_file, id_column=cfg.id_column)
     store = SessionStore(cfg.sessions_dir)
     app = FastAPI(title="Declared List Generator")
+
+    def source() -> ExcelItemSource:
+        """Return the item source for the *current* settings (they can change at runtime)."""
+        return ExcelItemSource(cfg.items_file, id_column=cfg.id_column)
 
     def load_table() -> ItemTable:
         """Read the item database (fresh each call so file edits show up).
@@ -111,7 +187,7 @@ def create_app(settings: Config | None = None) -> FastAPI:
             HTTPException: 500 if the database is missing or malformed.
         """
         try:
-            return source.load()
+            return source().load()
         except ItemSourceError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -120,7 +196,7 @@ def create_app(settings: Config | None = None) -> FastAPI:
         """Return all selectable items."""
         table = load_table()
         return ItemsResponse(
-            source=source.name, id_column=table.id_column, columns=table.columns, items=table.items
+            source=source().name, id_column=table.id_column, columns=table.columns, items=table.items
         )
 
     @app.get("/api/sessions", response_model=list[SessionSummary])
@@ -159,7 +235,7 @@ def create_app(settings: Config | None = None) -> FastAPI:
         session = Session(
             name=req.name,
             configuration_name=req.configuration_name.strip(),
-            source=source.name,
+            source=source().name,
             selected_ids=req.selected_ids,
             user_values=req.user_values,
         )
@@ -205,6 +281,69 @@ def create_app(settings: Config | None = None) -> FastAPI:
             media_type=DOCX_MEDIA_TYPE,
             headers={"Content-Disposition": 'attachment; filename="declared_list.docx"'},
         )
+
+    def current_settings() -> SettingsResponse:
+        """Return the GUI-editable settings."""
+        return SettingsResponse(
+            items_file=str(cfg.items_file),
+            id_column=cfg.id_column,
+            output_dir=str(cfg.output_dir),
+            config_file=str(config_path) if config_path else "",
+        )
+
+    @app.get("/api/settings", response_model=SettingsResponse, dependencies=[Depends(require_local)])
+    def get_settings() -> SettingsResponse:
+        """Return the item database, ID column and output folder."""
+        return current_settings()
+
+    @app.put("/api/settings", response_model=SettingsResponse, dependencies=[Depends(require_local)])
+    def put_settings(req: SettingsUpdate) -> SettingsResponse:
+        """Change the item database, ID column and/or output folder and save them to the config file.
+
+        Everything is validated before anything changes, so a bad value never
+        leaves the settings half-updated.
+        """
+        items_file, id_column, output_dir = cfg.items_file, cfg.id_column, cfg.output_dir
+        if req.items_file is not None:
+            items_file = _checked_path(req.items_file, "Item database")
+            if items_file.suffix.lower() != ".xlsx":
+                raise HTTPException(status_code=400, detail=f"Item database must be an .xlsx file: {items_file}")
+            if not items_file.is_file():
+                raise HTTPException(status_code=400, detail=f"Item database not found: {items_file}")
+        if req.id_column is not None:
+            id_column = req.id_column.strip()
+            if not id_column:
+                raise HTTPException(status_code=400, detail="ID column: enter the header of the column with the item IDs.")
+        # Only a *changed* folder must exist: the default output folder is created on first export,
+        # and re-sending an unchanged value must not block saving the other settings.
+        if req.output_dir is not None and req.output_dir.strip() != str(cfg.output_dir):
+            output_dir = _checked_path(req.output_dir, "Output folder")
+            if not output_dir.is_dir():
+                raise HTTPException(status_code=400, detail=f"Output folder not found: {output_dir}")
+        old = (cfg.items_file, cfg.id_column, cfg.output_dir)
+        cfg.items_file, cfg.id_column, cfg.output_dir = items_file, id_column, output_dir
+        if config_path is not None:
+            try:
+                save_config(cfg, config_path)
+            except ConfigError as exc:
+                cfg.items_file, cfg.id_column, cfg.output_dir = old  # keep memory and file in step
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return current_settings()
+
+    @app.get("/api/fs", dependencies=[Depends(require_local)])
+    def browse(path: str = "", files: bool = True) -> Listing:
+        """List a folder for the browse dialog.
+
+        Args:
+            path: Folder (or a file inside it); empty for the home folder.
+            files: Include .xlsx files (False when choosing a folder).
+        """
+        try:
+            return list_folder(path or None, (".xlsx",) if files else ())
+        except BrowseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except BrowseError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     # Mounted last so it never shadows the /api routes.
     if STATIC_DIR.is_dir():

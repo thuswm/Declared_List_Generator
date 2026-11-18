@@ -186,3 +186,133 @@ def test_export_includes_typed_values(client: TestClient) -> None:
     rows = [[c.text for c in row.cells] for row in Document(BytesIO(r.content)).tables[0].rows]
     assert rows[1][1] == "Hydraulic Pump"  # non-input column not overridden
     assert [row[5] for row in rows[1:]] == ["SN-0001", ""]
+
+
+LOCAL = ("127.0.0.1", 50000)
+
+
+@pytest.fixture
+def local(tmp_path: Path) -> tuple[TestClient, Path]:
+    """A client that looks local, with a temp config file the settings are saved to."""
+    from dlg.config import save_config
+
+    cfg_path = tmp_path / "config.toml"
+    settings = Config(
+        items_file=ROOT / "data" / "items.xlsx",
+        template_file=ROOT / "templates" / "declared_list_template.docx",
+        sessions_dir=tmp_path / "sessions",
+        output_dir=tmp_path,
+    )
+    save_config(settings, cfg_path)
+    return TestClient(create_app(settings, cfg_path), client=LOCAL), cfg_path
+
+
+def test_local_only_endpoints_refuse_remote_clients(client: TestClient) -> None:
+    """Settings and folder browsing are refused for non-local clients."""
+    remote = TestClient(client.app, client=("192.168.1.20", 50000))
+    assert remote.get("/api/settings").status_code == 403
+    assert remote.put("/api/settings", json={}).status_code == 403
+    assert remote.get("/api/fs").status_code == 403
+    assert remote.get("/api/items").status_code == 200  # normal API unaffected
+
+
+def test_get_settings(local: tuple[TestClient, Path]) -> None:
+    """Current paths and the config file location are returned."""
+    c, cfg_path = local
+    body = c.get("/api/settings").json()
+    assert body["items_file"] == str(ROOT / "data" / "items.xlsx")
+    assert body["config_file"] == str(cfg_path)
+
+
+def test_change_item_database_reloads_and_persists(local: tuple[TestClient, Path], tmp_path: Path) -> None:
+    """A new database is used immediately and written to the config file."""
+    from openpyxl import Workbook
+
+    from dlg.config import load_config
+
+    c, cfg_path = local
+    db = tmp_path / "other.xlsx"
+    wb = Workbook()
+    for row in (["ID", "Title"], ["X1", "Thing"]):
+        wb.active.append(row)
+    wb.save(db)
+    out = tmp_path / "out"
+    out.mkdir()
+    r = c.put("/api/settings", json={"items_file": str(db), "output_dir": str(out)})
+    assert r.status_code == 200, r.text
+    body = c.get("/api/items").json()
+    assert body["source"] == "other.xlsx"
+    assert [i["id"] for i in body["items"]] == ["X1"]
+    saved = load_config(cfg_path)
+    assert saved.items_file == db and saved.output_dir == out
+    sess = c.post("/api/sessions", json={"name": "n", "selected_ids": ["X1"]}).json()
+    assert sess["source"] == "other.xlsx"
+
+
+@pytest.mark.parametrize("body, fragment", [
+    ({"items_file": "relative/items.xlsx"}, "full path"),
+    ({"items_file": "   "}, "full path"),
+    ({"items_file": str(ROOT / "nowhere" / "items.xlsx")}, "not found"),
+    ({"items_file": str(ROOT / "README.md")}, ".xlsx"),
+    ({"output_dir": str(ROOT / "nowhere" / "at" / "all")}, "Output folder not found"),
+])
+def test_invalid_settings_change_nothing(local: tuple[TestClient, Path], body: dict, fragment: str) -> None:
+    """Bad values are rejected with a message and leave settings and file unchanged."""
+    c, cfg_path = local
+    before_file = cfg_path.read_text(encoding="utf-8")
+    before = c.get("/api/settings").json()
+    r = c.put("/api/settings", json={"output_dir": before["output_dir"], **body})
+    assert r.status_code == 400 and fragment in r.json()["detail"]
+    assert c.get("/api/settings").json() == before
+    assert cfg_path.read_text(encoding="utf-8") == before_file
+
+
+def test_settings_without_config_file_stay_in_memory(tmp_path: Path) -> None:
+    """Without a config path (tests/programmatic use) changes apply but nothing is written."""
+    c = TestClient(create_app(Config(sessions_dir=tmp_path / "s")), client=LOCAL)
+    assert c.get("/api/settings").json()["config_file"] == ""
+    assert c.put("/api/settings", json={"output_dir": str(tmp_path)}).status_code == 200
+    assert c.get("/api/settings").json()["output_dir"] == str(tmp_path)
+
+
+def test_browse_endpoint(local: tuple[TestClient, Path], tmp_path: Path) -> None:
+    """Folders and .xlsx files are listed; files can be left out; errors are clear."""
+    c, _ = local
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "db.xlsx").write_text("x")
+    body = c.get("/api/fs", params={"path": str(tmp_path)}).json()
+    assert "sub" in [d["name"] for d in body["dirs"]]
+    assert [f["name"] for f in body["files"]] == ["db.xlsx"]
+    assert body["roots"][0]["name"] == "Home"
+    assert c.get("/api/fs", params={"path": str(tmp_path), "files": "false"}).json()["files"] == []
+    assert c.get("/api/fs", params={"path": str(tmp_path / "missing")}).status_code == 404
+
+
+def test_change_id_column(local: tuple[TestClient, Path], tmp_path: Path) -> None:
+    """The ID column can be set from the GUI; blank is rejected; it is persisted."""
+    from openpyxl import Workbook
+
+    from dlg.config import load_config
+
+    c, cfg_path = local
+    db = tmp_path / "parts.xlsx"
+    wb = Workbook()
+    for row in (["Part No", "Title"], ["P1", "Widget"]):
+        wb.active.append(row)
+    wb.save(db)
+    assert c.put("/api/settings", json={"items_file": str(db)}).status_code == 200
+    r = c.get("/api/items")
+    assert r.status_code == 500 and "Part No, Title" in r.json()["detail"]
+    assert c.put("/api/settings", json={"id_column": "  "}).status_code == 400
+    r = c.put("/api/settings", json={"id_column": " Part No "})
+    assert r.status_code == 200 and r.json()["id_column"] == "Part No"
+    assert [i["id"] for i in c.get("/api/items").json()["items"]] == ["P1"]
+    assert load_config(cfg_path).id_column == "Part No"
+
+
+def test_unchanged_missing_output_folder_does_not_block_saving(tmp_path: Path) -> None:
+    """Re-sending the (not yet created) default output folder is accepted."""
+    missing = tmp_path / "output"
+    c = TestClient(create_app(Config(sessions_dir=tmp_path / "s", output_dir=missing)), client=LOCAL)
+    r = c.put("/api/settings", json={"output_dir": str(missing), "id_column": "ID"})
+    assert r.status_code == 200, r.text

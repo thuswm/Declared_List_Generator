@@ -5,8 +5,8 @@ Keep this file short (about one screen). Details live elsewhere:
 
 ## Status
 - **Released:** `v0.1.0` (2026-11-17) – first workable version. Full history: [docs/archive/release-0.1.0-plan.md](docs/archive/release-0.1.0-plan.md).
-- **Current:** Release 0.2.0 in progress on branch `release/0.2.0` (steps 1–7 of 11 done). Plan revised 2026-11-18 after the Windows test (approved).
-- **Next step:** step 8 – paths & browsing (file/folder browser to set item DB, output folder; persist to config).
+- **Current:** Release 0.2.0 in progress on branch `release/0.2.0` (steps 1–8 of 11 done). Plan revised 2026-11-18 after the Windows test (approved).
+- **Next step:** step 9 – output file name & location (name field, write to `output_dir`, overwrite confirmation, saved path, `{{CONFIGURATION_NAME}}`).
 
 ## Release 0.2.0 – plan
 Design decisions for this release: [docs/decisions.md](docs/decisions.md) (sections "0.2.0 …").
@@ -19,7 +19,7 @@ Design decisions for this release: [docs/decisions.md](docs/decisions.md) (secti
 5. [x] **Session schema v2 (done 2026-11-18, 84 Python + 15 JS tests pass):** `configuration_name`, `user_values`, v1 → v2 migration on load, name-collision fix; tests.
 6. [x] **Configuration name in GUI (done 2026-11-18, 84 Python + 17 JS tests pass, checked in headless Chromium):** field when saving; shown in the session load list and in the header after loading.
 7. [x] **User-input columns (done 2026-11-18, 88 Python + 20 JS tests pass, checked in headless Chromium):** header ending in `*`; editable cells in the table, stored in session, exported as normal columns; tests incl. Node tests.
-8. [ ] **Paths & browsing:** file/folder browser endpoint + GUI dialog; set item DB location and output folder; persist to config.
+8. [x] **Paths & browsing (done 2026-11-18, 108 Python + 20 JS tests pass, checked in headless Chromium):** file/folder browser endpoint + GUI dialog; set item DB location, ID column and output folder; persist to config.
 9. [ ] **Output file name & location:** name field, write to `output_dir`, overwrite confirmation, show saved path; `{{CONFIGURATION_NAME}}` placeholder.
 10. [ ] **Exit button:** shutdown endpoint + GUI button; clean server stop; test.
 11. [ ] **Release:** test run on Windows, re-check export in real Word, README + CHANGELOG, bump to 0.2.0, tag `v0.2.0`, trim this file, archive the plan.

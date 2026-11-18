@@ -3,6 +3,16 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-18 – Paths & browsing (0.2.0 step 8)
+- Browsers cannot reveal real file paths, so the local server lists folders: `GET /api/fs?path=&files=` (`dlg/filebrowser.py`, stdlib only). Empty path = home; a file path lists its folder (dialog opens at the current file). Roots: Home + drives (`os.listdrives()` on 3.12+, else drive-letter probe) on Windows, Home + `/` elsewhere. Hidden: dot-files, Office lock files `~$*.xlsx`, Windows hidden attribute. Sorting case-insensitive. 404 missing / 403 unreadable.
+- `GET`/`PUT /api/settings`: `items_file`, `id_column`, `output_dir`. Everything is validated before anything changes; on a failed config write the in-memory values are rolled back. Saved with `save_config` (rewrites the file; user comments are lost — acceptable, file is tool-generated).
+- **ID column added to the GUI settings** (not in the original step): the browser check showed a database with another ID header (`Part No`) is unusable without editing the config file, and the real ID header is not yet known.
+- Gotcha: the default output folder does not exist until the first export, and the GUI always sends all fields, so validating an *unchanged* `output_dir` blocked every save. Only changed values are validated now.
+- Paths must be absolute (a relative path would resolve against the server's working folder).
+- **Local-only:** `/api/fs` and `/api/settings` require the client to be `127.0.0.1`/`::1` (FastAPI dependency `require_local`), so they stay local even with `--host` on a network. Tests use `TestClient(client=("127.0.0.1", …))`.
+- The item source is now created per request from the current config (`source()`), so a new database applies without restart. The launcher passes the config path to `create_app(config, config_path)`; with `None` (tests) changes stay in memory.
+- GUI: collapsible Settings panel, opens automatically when the database fails to load; `<dialog>` browse dialog (Go to…, Up, editable path + Go/Enter, folders then files, double-click selects a file; folder mode selects the current folder). After a database change, filters on vanished columns are dropped and unknown selected IDs are deselected with a warning.
+
 ## 2026-11-18 – User-input columns (0.2.0 step 7)
 - Header ending in `*` (trailing whitespace before it allowed, `Lot *` → `Lot`) marks an input column: `Column.user_input = True`. The sheet's cells in that column are **ignored** (values come only from the user), so `Item.values` holds `""` there. A header of only `*` is skipped; `X` + `X*` is a duplicate-header error; the ID column may not be an input column. `#X*` is simply omitted.
 - Merging happens in one place per side: `ItemTable.with_user_values()` (server, export) and `withUserValues()` (GUI: table, search, filter lists). Both only fill input columns, so a session/request can never override database data.
