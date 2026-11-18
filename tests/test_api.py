@@ -49,7 +49,7 @@ def test_session_lifecycle(client: TestClient) -> None:
     assert saved.json()["source"] == "items.xlsx"
 
     listing = client.get("/api/sessions").json()
-    assert [(s["name"], s["count"]) for s in listing] == [("Proj A", 2)]
+    assert [(s["name"], s["count"], s["configuration_name"]) for s in listing] == [("Proj A", 2, "")]
 
     assert client.get("/api/sessions/Proj A").json()["selected_ids"] == ["DL-002", "DL-001"]
 
@@ -147,3 +147,25 @@ def test_configured_id_column(tmp_path: Path) -> None:
     wrong = Config(items_file=tmp_path / "parts.xlsx", sessions_dir=tmp_path / "s")  # default 'ID'
     r = TestClient(create_app(wrong)).get("/api/items")
     assert r.status_code == 500 and "id_column" in r.json()["detail"]
+
+
+def test_session_v2_fields_via_api(client: TestClient) -> None:
+    """Configuration name and user values are saved, listed and loaded."""
+    body = {
+        "name": "Rig", "configuration_name": "  Rig 7 build B ", "selected_ids": ["DL-001"],
+        "user_values": {"DL-001": {"Serial number": "SN-9"}, "DL-002": {"Serial number": "dropped"}},
+    }
+    saved = client.post("/api/sessions", json=body).json()
+    assert saved["configuration_name"] == "Rig 7 build B"
+    assert saved["user_values"] == {"DL-001": {"Serial number": "SN-9"}}
+    assert client.get("/api/sessions").json()[0]["configuration_name"] == "Rig 7 build B"
+    assert client.get("/api/sessions/Rig").json()["schema_version"] == 2
+
+
+def test_colliding_session_names_via_api(client: TestClient) -> None:
+    """'a/b' and 'a_b' are separate sessions."""
+    client.post("/api/sessions", json={"name": "a/b", "selected_ids": ["DL-001"]})
+    client.post("/api/sessions", json={"name": "a_b", "selected_ids": ["DL-002"]})
+    assert client.get("/api/sessions/a%2Fb").json()["selected_ids"] == ["DL-001"]
+    assert client.get("/api/sessions/a_b").json()["selected_ids"] == ["DL-002"]
+    assert len(client.get("/api/sessions").json()) == 2

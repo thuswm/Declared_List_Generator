@@ -44,12 +44,14 @@ class SessionSummary(BaseModel):
 
     Attributes:
         name: Session name.
+        configuration_name: Configuration the selection belongs to.
         modified: Last modification time.
         source: Item database the selection was made from.
         count: Number of selected items.
     """
 
     name: str
+    configuration_name: str
     modified: datetime
     source: str
     count: int
@@ -60,11 +62,15 @@ class SaveSessionRequest(BaseModel):
 
     Attributes:
         name: Session name (an existing session of that name is overwritten).
+        configuration_name: Configuration the selection belongs to.
         selected_ids: IDs of the selected items.
+        user_values: Values typed by the user, per item ID and column name.
     """
 
     name: str = Field(min_length=1, max_length=200)
+    configuration_name: str = Field(default="", max_length=500)
     selected_ids: list[str]
+    user_values: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
 class ExportRequest(BaseModel):
@@ -118,7 +124,13 @@ def create_app(settings: Config | None = None) -> FastAPI:
     def list_sessions() -> list[SessionSummary]:
         """List saved sessions, newest first."""
         return [
-            SessionSummary(name=s.name, modified=s.modified, source=s.source, count=len(s.selected_ids))
+            SessionSummary(
+                name=s.name,
+                configuration_name=s.configuration_name,
+                modified=s.modified,
+                source=s.source,
+                count=len(s.selected_ids),
+            )
             for s in store.list()
         ]
 
@@ -141,7 +153,13 @@ def create_app(settings: Config | None = None) -> FastAPI:
         can be saved even if the database is temporarily unavailable; they are
         validated when exporting.
         """
-        session = Session(name=req.name, source=source.name, selected_ids=req.selected_ids)
+        session = Session(
+            name=req.name,
+            configuration_name=req.configuration_name.strip(),
+            source=source.name,
+            selected_ids=req.selected_ids,
+            user_values=req.user_values,
+        )
         try:
             store.save(session)
             return store.load(req.name)  # reflects de-duplication and timestamps

@@ -121,7 +121,7 @@ def test_cell_text_formats() -> None:
 def test_session_defaults() -> None:
     """A new Session has the current schema version and timestamps."""
     s = Session(name="x")
-    assert s.schema_version == 1
+    assert s.schema_version == 2
     assert s.selected_ids == []
     assert s.created.tzinfo is not None
 

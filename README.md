@@ -130,21 +130,30 @@ the browser table and written to the Word table, in sheet order.
 - Two shown columns with the same header are an error.
 - Dates are shown as `YYYY-MM-DD`; whole numbers without a decimal part.
 
-**Session file (JSON).** One readable file per session in `sessions/`:
+**Session file (JSON).** One readable file per session in the sessions folder:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "name": "Project A",
+  "configuration_name": "Rig 7, build B",
   "created": "2026-11-17T18:34:41Z",
-  "modified": "2026-11-17T18:34:41Z",
+  "modified": "2026-11-18T09:12:03Z",
   "source": "items.xlsx",
-  "selected_ids": ["DL-001", "DL-003"]
+  "selected_ids": ["DL-001", "DL-003"],
+  "user_values": {"DL-001": {"Serial number": "SN-1234"}}
 }
 ```
 
-Session files from a newer schema version are refused with a clear message.
-The file name is a sanitised form of the session name.
+- `name` identifies the session. The file name is a readable form of it; if
+  two names give the same file name (e.g. `a/b` and `a_b`, or `Proj` and `proj`
+  on Windows), the second is stored as `a_b (2).json`.
+- `configuration_name` describes the configuration the items belong to;
+  `user_values` holds values typed for selected items (both used from later
+  0.2.0 steps).
+- Files from version 0.1.0 (`schema_version` 1) still load; they are written in
+  the new format the next time they are saved. Files from a newer version of
+  the tool are refused with a clear message.
 
 **Word template.** Any `.docx`. Put a paragraph containing exactly
 `{{DECLARED_LIST}}` where the table should go. The table is inserted there and
@@ -159,8 +168,6 @@ their content.
 - Export rows follow **database order**, not the order you clicked.
 - Loading a session whose items are no longer in the database skips them and
   lists their IDs in a warning. They are dropped if you save again.
-- Session names that differ only by characters not allowed in file names
-  (for example `a/b` and `a_b`) share one file; the later save overwrites.
 
 ## Tests
 

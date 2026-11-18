@@ -10,8 +10,9 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
-#: Current session file schema version. Bump when the format changes.
-SESSION_SCHEMA_VERSION = 1
+#: Current session file schema version. Bump when the format changes and add a
+#: migration step in ``dlg.sessions``.
+SESSION_SCHEMA_VERSION = 2
 
 
 def _now() -> datetime:
@@ -70,16 +71,22 @@ class Session(BaseModel):
 
     Attributes:
         schema_version: Version of the session file format.
-        name: Human-readable session name.
+        name: Human-readable session name (unique key of the session).
+        configuration_name: Free text describing the configuration the
+            selected items belong to (added in schema version 2).
         created: Creation timestamp (UTC).
         modified: Last modification timestamp (UTC).
         source: Filename of the item database the selection was made from.
         selected_ids: IDs of the selected items, in selection order.
+        user_values: Values typed by the user, per item ID and column name
+            (added in schema version 2).
     """
 
     schema_version: int = SESSION_SCHEMA_VERSION
     name: str
+    configuration_name: str = ""
     created: datetime = Field(default_factory=_now)
     modified: datetime = Field(default_factory=_now)
     source: str = ""
     selected_ids: list[str] = Field(default_factory=list)
+    user_values: dict[str, dict[str, str]] = Field(default_factory=dict)

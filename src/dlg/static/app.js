@@ -21,6 +21,9 @@ const state = {
   panel: null,
   sessions: [],
   sessionName: '', // name of the session last loaded or saved
+  // Kept from the loaded session and sent back on save (edited in the GUI from 0.2.0 steps 6-7).
+  configurationName: '',
+  userValues: {},
   dirty: false, // selection changed since last load/save
 };
 
@@ -367,13 +370,19 @@ async function saveSession() {
     el.sessionName.focus();
     return;
   }
-  const exists = state.sessions.some((s) => s.name.toLowerCase() === name.toLowerCase());
+  // Names are exact (case-sensitive) keys on the server, so compare exactly here too.
+  const exists = state.sessions.some((s) => s.name === name);
   if (exists && name !== state.sessionName
       && !window.confirm(`A session named "${name}" already exists. Overwrite it?`)) {
     return;
   }
   try {
-    const saved = await sendJson('/api/sessions', 'POST', { name, selected_ids: [...state.selected] });
+    const saved = await sendJson('/api/sessions', 'POST', {
+      name,
+      configuration_name: state.configurationName,
+      selected_ids: [...state.selected],
+      user_values: state.userValues,
+    });
     state.sessionName = saved.name;
     state.dirty = false;
     await refreshSessions();
@@ -392,6 +401,8 @@ async function loadSession() {
     const { known, unknown } = partitionIds(session.selected_ids, state.items);
     state.selected = new Set(known);
     state.sessionName = session.name;
+    state.configurationName = session.configuration_name;
+    state.userValues = session.user_values;
     state.dirty = false;
     el.sessionName.value = session.name;
     renderRows();

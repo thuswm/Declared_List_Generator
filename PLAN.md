@@ -5,8 +5,8 @@ Keep this file short (about one screen). Details live elsewhere:
 
 ## Status
 - **Released:** `v0.1.0` (2026-11-17) – first workable version. Full history: [docs/archive/release-0.1.0-plan.md](docs/archive/release-0.1.0-plan.md).
-- **Current:** Release 0.2.0 in progress on branch `release/0.2.0` (steps 1–4 of 11 done). Plan revised 2026-11-18 after the Windows test (approved).
-- **Next step:** step 5 – session schema v2 (`configuration_name`, `user_values`, v1 migration, name-collision fix).
+- **Current:** Release 0.2.0 in progress on branch `release/0.2.0` (steps 1–5 of 11 done). Plan revised 2026-11-18 after the Windows test (approved).
+- **Next step:** step 6 – configuration name in the GUI (field when saving, shown in load list and header).
 
 ## Release 0.2.0 – plan
 Design decisions for this release: [docs/decisions.md](docs/decisions.md) (sections "0.2.0 …").
@@ -16,7 +16,7 @@ Design decisions for this release: [docs/decisions.md](docs/decisions.md) (secti
 2. [x] **README for Linux and Windows (done 2026-11-18):** setup/run commands for both (PowerShell + cmd: `.venv\Scripts\python`, quoting of `.[dev]`), config file location on both.
 3. [x] **Columns from the Excel file (done 2026-11-18, 71 Python + 9 JS tests pass):** `id_column` setting (default `ID`); item = ID + ordered column values; headers starting with `#` ignored everywhere; API returns the column list; GUI table and Word table built from it (Word: exactly the non-omitted Excel columns, no extra `No.` column; widths from content length); remove hard-coded `TABLE_COLUMNS`, `Item.name/description/category` and the category dropdown; v1 sessions still load (they store IDs only); tests.
 4. [x] **Excel-style column filters (done 2026-11-18, 71 Python + 15 JS tests pass, checked in headless Chromium):** filter button per column header → list of distinct values with checkboxes + text box; filters combine (AND) with the global search and "only selected"; active filters visible and clearable; logic in `logic.js` with Node tests.
-5. [ ] **Session schema v2:** `configuration_name`, `user_values`, v1 → v2 migration on load, name-collision fix; tests.
+5. [x] **Session schema v2 (done 2026-11-18, 84 Python + 15 JS tests pass):** `configuration_name`, `user_values`, v1 → v2 migration on load, name-collision fix; tests.
 6. [ ] **Configuration name in GUI:** field when saving; shown in the session load list and in the header after loading.
 7. [ ] **User-input columns:** header ending in `*`; editable cells in the table, stored in session, exported as normal columns; tests incl. Node tests.
 8. [ ] **Paths & browsing:** file/folder browser endpoint + GUI dialog; set item DB location and output folder; persist to config.

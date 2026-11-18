@@ -3,6 +3,14 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-18 – Session schema v2 (0.2.0 step 5)
+- `schema_version` 2 adds `configuration_name` (str) and `user_values` (`{item_id: {column: value}}`). `sessions.migrate()` upgrades raw data one version per step (v1 → v2 just sets the version; model defaults fill the new fields). The file on disk is only rewritten on the next save.
+- On save, `user_values` keeps only non-empty values of *selected* items (values of deselected items are dropped), in selection order. API strips `configuration_name`.
+- **Name-collision fix:** a session is identified by the exact `name` inside the file, not by the filename. Lookup tries `<safe name>.json` first and checks the stored name; otherwise scans the folder. New sessions get the first free filename (`x.json`, `x (2).json`, ...). `Path.exists()` follows the file system, so case-only differences collide correctly on Windows (separate files there, same as Linux). Old v1 files with sanitised names are still found by their real name.
+- A corrupt file at the preferred path is reported (422/400) rather than silently skipped, as before. Unrelated corrupt files are skipped during scans.
+- Windows device names (`CON`, `NUL`, `COM1`, ...) get a `_` prefix in the filename.
+- GUI: session-name "overwrite?" check is now exact (case-sensitive), matching the server. Until steps 6–7, the GUI keeps the loaded session's `configuration_name`/`user_values` and sends them back on save, so nothing is lost.
+
 ## 2026-11-18 – Excel-style column filters (0.2.0 step 4)
 - State: `filter.columns = {column: Set(allowed values)}`; a column is absent when unfiltered. Blank cells are the value `""`, listed as "(Blanks)" (last in the list); typing "blank" finds them.
 - Like Excel: a column's value list only shows values from rows passing the *other* column filters (not its own, not search/selected-only). With text typed in the panel, OK keeps only the listed *and* ticked values. All values ticked = filter removed. OK is disabled when nothing is ticked (would hide everything).
@@ -60,7 +68,7 @@ Architecture decision log, newest first. Full per-phase history of release 0.1.0
 ## Carried over from 0.1.0 (still relevant)
 - **Stack:** FastAPI + pydantic + uvicorn, vanilla HTML/JS, `openpyxl` (read), `python-docx` (write).
 - **Item DB** sits behind the `ItemSource` interface (Excel in v1). IDs are always strings; duplicate IDs / missing ID or Name headers raise `ItemSourceError`; unmapped columns go to `Item.extra`.
-- **Sessions:** JSON validated by pydantic, atomic writes, newer `schema_version` refused. Known gotcha: names that sanitise to the same stem (`a/b`, `a_b`) share a file.
+- **Sessions:** JSON validated by pydantic, atomic writes, newer `schema_version` refused. (Name-collision gotcha fixed in 0.2.0 step 5.)
 - **Word export:** placeholder paragraph must be exactly `{{DECLARED_LIST}}` in a landscape section; columns defined in `TABLE_COLUMNS`; rows follow database order. Gotchas: keep the section break when the placeholder paragraph holds it; set `tblGrid` widths (LibreOffice); keep `w:tblPr` child order (Word). Not yet verified in real Word.
 - **API:** Excel re-read on every request; export rejects empty (400) / unknown IDs (422). Session routes use `{name:path}`.
 - **GUI:** pure logic in `logic.js` (Node-testable); data written with `textContent` only (no `innerHTML`). Unknown IDs in a loaded session are dropped with a warning.
