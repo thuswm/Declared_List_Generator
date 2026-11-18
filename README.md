@@ -5,114 +5,224 @@ and export a Word document containing the declared list as a table.
 
 ## Setup
 
-Requires Python 3.11+. The project's dependencies live in a virtual
-environment (`.venv`), so a plain `python -m dlg` from the system Python fails
-with `No module named dlg`. Either activate the venv or call its Python directly.
+Requires Python 3.11 or newer. The project's dependencies are installed into a
+virtual environment (`.venv`) in the project folder, so a plain `python -m dlg`
+from the system Python fails with `No module named dlg`. Either activate the
+venv or call its Python directly (both shown below).
+
+All commands are run from the project folder. Each setup step is needed only once.
+
+### Linux / macOS (bash, zsh)
 
 ```bash
-python -m venv .venv                       # once
-.venv/bin/pip install -e '.[dev]'          # once; drop '[dev]' if you don't need the tests
-.venv/bin/python tools/make_examples.py    # once; writes data/items.xlsx and the example template
+python3 -m venv .venv
+.venv/bin/pip install -e '.[dev]'          # drop '[dev]' if you don't need the tests
+.venv/bin/python tools/make_examples.py    # writes data/items.xlsx and the example template
 ```
+
+### Windows (PowerShell or Command Prompt)
+
+Install Python from [python.org](https://www.python.org/downloads/windows/)
+(it includes the `py` launcher). Then:
+
+```bat
+py -3 -m venv .venv
+.venv\Scripts\pip install -e ".[dev]"
+.venv\Scripts\python tools\make_examples.py
+```
+
+Use double quotes around `".[dev]"`: Command Prompt does not understand single quotes.
 
 ## Run
 
-Run from the project folder, using the venv's Python:
+Linux / macOS:
 
 ```bash
 .venv/bin/python -m dlg                    # starts the server and opens the browser
 ```
 
-or activate the venv once per terminal and then use plain `python`
-(bash/zsh; on Windows use `.venv\Scripts\activate`):
+Windows:
 
-```bash
-source .venv/bin/activate
-python -m dlg
-# alternative without the launcher: uvicorn dlg.app:app
+```bat
+.venv\Scripts\python -m dlg
 ```
 
-Options: `--port 9000`, `--no-browser`, `--host`. The server listens on
+Alternatively, activate the venv once per terminal and then use plain `python -m dlg`:
+
+| Shell              | Activate                         |
+|--------------------|----------------------------------|
+| bash / zsh         | `source .venv/bin/activate`      |
+| PowerShell         | `.venv\Scripts\Activate.ps1`     |
+| Command Prompt     | `.venv\Scripts\activate.bat`     |
+
+If PowerShell refuses to run `Activate.ps1` ("running scripts is disabled on this
+system"), either call `.venv\Scripts\python` directly as above, or allow local
+scripts once for your user:
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+
+Options: `--config`, `--port 9000`, `--no-browser`, `--host`. The server listens on
 `127.0.0.1` only by default. There is no authentication, so do not expose it
 on an untrusted network. If the port is already in use, pick another with
-`--port`. Stop the server with Ctrl+C.
+`--port`. Stop the tool with the **Exit** button at the top right of the page
+(it warns about unsaved changes first), or with Ctrl+C in the terminal.
 
 ### Configuration
 
-| Environment variable | Default                                    | Meaning                       |
-|----------------------|--------------------------------------------|-------------------------------|
-| `DLG_ITEMS`          | `data/items.xlsx`                          | Excel item database           |
-| `DLG_TEMPLATE`       | `templates/declared_list_template.docx`    | Word template                 |
-| `DLG_SESSIONS`       | `sessions/`                                | Folder for session files      |
+Each user has a personal TOML file, created with defaults the first time the
+tool starts (or whenever it is missing; delete it to reset):
+
+| Platform      | Location                                                   |
+|---------------|------------------------------------------------------------|
+| Linux / macOS | `$XDG_CONFIG_HOME/dlg/config.toml`, else `~/.config/dlg/config.toml` |
+| Windows       | `%APPDATA%\dlg\config.toml`                                |
+
+Use a different file with `python -m dlg --config path/to/config.toml`.
+
+To open it for editing: `xdg-open ~/.config/dlg/config.toml` (Linux),
+`notepad "$env:APPDATA\dlg\config.toml"` (PowerShell) or
+`notepad "%APPDATA%\dlg\config.toml"` (Command Prompt).
+
+| Key             | Default                                    | Meaning                                  |
+|-----------------|--------------------------------------------|------------------------------------------|
+| `items_file`    | `data/items.xlsx` (in the project)         | Excel item database                      |
+| `template_file` | `templates/declared_list_template.docx`    | Word template                            |
+| `sessions_dir`  | `sessions/` (in the project)               | Folder for session files                 |
+| `output_dir`    | `output/` (in the project)                 | Folder for generated Word documents      |
+| `id_column`     | `ID`                                       | Header of the item-database column holding the unique item IDs |
+| `host`, `port`  | `127.0.0.1`, `8000`                        | Where the server listens                 |
+
+Relative paths in the file are resolved against the folder containing it.
+Saving settings in the GUI rewrites the file (your own comments in it are lost).
+Windows paths: inside double quotes a backslash must be doubled
+(`"C:\\Data\\items.xlsx"`); single quotes (`'C:\Data\items.xlsx'`) or forward
+slashes (`"C:/Data/items.xlsx"`) also work.
+`--host` / `--port` on the command line override the file. The old `DLG_*`
+environment variables are no longer used. Settings added by a newer version
+are appended to an existing file with their defaults, so you can see and change them.
 
 ## Using it
 
-1. Tick the items that belong on the declared list (search, filter by category,
-   or click a row). The header checkbox selects everything currently shown.
-2. Enter a name and **Save** to store the selection as a session; **Load** a
-   saved session later.
-3. **Export Word document** downloads `declared_list.docx`.
+**Settings** (collapsible panel at the top): choose the **Item database**
+(.xlsx) and the **Output folder** with **Browse…**, set the **ID column**, and
+**Save settings**. They are written to your configuration file and take effect
+immediately: the new database is loaded, and selected items that are not in it
+are deselected. If the database cannot be loaded at start-up, the panel opens
+by itself so the path or ID column can be fixed. Settings and browsing only
+work from the computer running the tool.
+
+1. Tick the items that belong on the declared list (click the checkbox or the
+   row). The header checkbox selects everything currently shown.
+   - **Search** looks in all shown columns (every word must match).
+   - **Column filters** work like Excel's: click ▾ in a column header, tick the
+     values to show (type in the box to narrow the list; Enter = OK). The list
+     only offers values left by the other columns' filters. A filtered column's
+     ▾ is highlighted; **Clear filters** removes them all.
+   - Search, column filters and **Selected only** all apply together.
+     Filters are not saved in the session.
+   - **Input columns** (marked ✎) take a value you type per item, e.g. a
+     serial number. Their cells are editable for selected rows; clicking the
+     cell of an unselected row selects it. Typed values are saved with the
+     session, are searchable and filterable, and go into the Word table.
+2. Enter a **Name** and, optionally, a **Configuration** (what the items
+   belong to, e.g. `Rig 7, build B`) and **Save** to store the selection as a
+   session. **Load** a saved session later; the list shows each session's
+   configuration, and the page header shows the current session and configuration.
+3. Check the **File name** (suggested from the configuration name, else the
+   session name; `.docx` is added) and click **Export Word document**. The
+   file is written to the output folder (created if needed) and the full path
+   is shown. If a file of that name exists you are asked before it is replaced;
+   if it is open in Word, close it and export again. Characters not allowed in
+   Windows file names (`< > : " / \ | ? *`) are refused.
 
 The Excel file is re-read on every page load, so you can edit it and refresh.
 
 ## File formats
 
-**Item database (Excel).** First sheet, first row = headers. Required columns:
-`ID` (unique) and `Name`. Optional: `Description`, `Category`. Any other
-column is kept and is searchable, but not shown. Rows without an ID are
-skipped; duplicate IDs are an error.
+**Item database (Excel).** First sheet, first row = headers. The columns of
+the sheet are the columns of the tool: every column with a header is shown in
+the browser table and written to the Word table, in sheet order.
 
-**Session file (JSON).** One readable file per session in `sessions/`:
+- **ID column:** one column holds a unique ID per item (selections are saved
+  by ID). Its header is set by `id_column` in the configuration file (default
+  `ID`). Rows without an ID are skipped; duplicate IDs are an error.
+- **Omitting a column:** start its header with `#` (e.g. `#Internal note`).
+  The tool then ignores it completely: not shown, not searched, not exported.
+  Columns without a header are ignored too.
+- **User-input column:** end its header with `*` (e.g. `Serial number*`). The
+  user types its value per selected item in the tool; the `*` is not shown or
+  exported, and the sheet's own cells in that column are ignored. The ID column
+  cannot be an input column.
+- Two shown columns with the same header are an error (`Serial` and
+  `Serial*` count as the same header).
+- Dates are shown as `YYYY-MM-DD`; whole numbers without a decimal part.
+
+**Session file (JSON).** One readable file per session in the sessions folder:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "name": "Project A",
+  "configuration_name": "Rig 7, build B",
   "created": "2026-11-17T18:34:41Z",
-  "modified": "2026-11-17T18:34:41Z",
+  "modified": "2026-11-18T09:12:03Z",
   "source": "items.xlsx",
-  "selected_ids": ["DL-001", "DL-003"]
+  "selected_ids": ["DL-001", "DL-003"],
+  "user_values": {"DL-001": {"Serial number": "SN-1234"}}
 }
 ```
 
-Session files from a newer schema version are refused with a clear message.
-The file name is a sanitised form of the session name.
+- `name` identifies the session. The file name is a readable form of it; if
+  two names give the same file name (e.g. `a/b` and `a_b`, or `Proj` and `proj`
+  on Windows), the second is stored as `a_b (2).json`.
+- `configuration_name` describes the configuration the items belong to;
+  `user_values` holds the values typed in input columns, for selected items only
+  (values of deselected items are dropped on save).
+- Files from version 0.1.0 (`schema_version` 1) still load; they are written in
+  the new format the next time they are saved. Files from a newer version of
+  the tool are refused with a clear message.
 
 **Word template.** Any `.docx`. Put a paragraph containing exactly
 `{{DECLARED_LIST}}` where the table should go. The table is inserted there and
 inherits that section's page setup, so put the placeholder in a **landscape
 section** (with portrait sections before and after, as in the example
-template). The table has a repeating header row. Change the columns in
-`TABLE_COLUMNS` in `src/dlg/docgen.py`.
+template). The table has a repeating header row and exactly the shown
+(non-`#`) columns of the item database; column widths follow the length of
+their content.
+
+`{{CONFIGURATION_NAME}}` anywhere in the template (body text, tables, headers
+and footers) is replaced by the configuration name entered in the tool, e.g.
+`Configuration: {{CONFIGURATION_NAME}}` as in the example template. Text boxes
+are not searched.
 
 ## Behaviour worth knowing
 
 - Export rows follow **database order**, not the order you clicked.
 - Loading a session whose items are no longer in the database skips them and
   lists their IDs in a warning. They are dropped if you save again.
-- Session names that differ only by characters not allowed in file names
-  (for example `a/b` and `a_b`) share one file; the later save overwrites.
 
 ## Tests
 
 ```bash
-.venv/bin/pytest          # Python tests (also runs the JS tests if Node is installed)
-node --test tests/js      # JS tests alone
+.venv/bin/pytest          # Linux/macOS: Python tests (also runs the JS tests if Node is installed)
+.venv\Scripts\pytest      # Windows
+node --test tests/js      # JS tests alone (needs Node.js)
 ```
 
 ## Layout
 
 ```
 src/dlg/
-  models.py        Item and Session models
+  config.py        per-user config file
+  models.py        Column, Item, ItemTable and Session models
   sources/         ItemSource interface and the Excel implementation
   sessions.py      session JSON storage
+  filebrowser.py   folder listing for the Browse dialog
   docgen.py        Word generation
   app.py           FastAPI routes + static GUI
   static/          index.html, app.js, logic.js, style.css
 tools/make_examples.py   example database and template
-PLAN.md                  design decisions and progress log
+PLAN.md                  current status and plan (decisions in docs/decisions.md)
 ```
 
 Swapping the item database later means writing another class with a
-`name` and `load_items()` (see `sources/base.py`) and using it in `app.py`.
+`name` and `load()` returning an `ItemTable` (see `sources/base.py`) and using it in `app.py`.

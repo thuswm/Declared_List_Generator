@@ -9,7 +9,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from dlg.app import Settings, create_app
+from dlg.app import create_app
+from dlg.config import Config
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -19,7 +20,7 @@ def test_static_files_served_with_module_safe_mime(tmp_path: Path) -> None:
 
     Browsers refuse ES module scripts served with a non-JavaScript type.
     """
-    client = TestClient(create_app(Settings(sessions_dir=tmp_path)))
+    client = TestClient(create_app(Config(sessions_dir=tmp_path)))
     index = client.get("/")
     assert index.status_code == 200 and "Declared List Generator" in index.text
     for name in ("app.js", "logic.js"):
@@ -32,7 +33,7 @@ def test_static_files_served_with_module_safe_mime(tmp_path: Path) -> None:
 
 def test_index_declares_an_icon(tmp_path: Path) -> None:
     """The page declares its own icon so browsers don't request (and 404 on) /favicon.ico."""
-    client = TestClient(create_app(Settings(sessions_dir=tmp_path)))
+    client = TestClient(create_app(Config(sessions_dir=tmp_path)))
     assert 'rel="icon"' in client.get("/").text
 
 

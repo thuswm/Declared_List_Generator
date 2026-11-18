@@ -40,9 +40,11 @@ def make_items_xlsx(path: Path) -> None:
     wb = Workbook()
     ws = wb.active
     ws.title = "Items"
-    ws.append(["ID", "Name", "Description", "Category", "Supplier"])
+    # "Serial number*" shows the user-input marker (typed in the tool, cells left empty);
+    # "#Internal note" shows the omit marker (the tool ignores that column).
+    ws.append(["ID", "Name", "Description", "Category", "Supplier", "Serial number*", "#Internal note"])
     for row in SAMPLE_ITEMS:
-        ws.append(list(row))
+        ws.append([*row, None, f"Checked by purchasing ({row[0]})"])
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
 
@@ -50,8 +52,9 @@ def make_items_xlsx(path: Path) -> None:
 def make_template_docx(path: Path) -> None:
     """Write the example Word template.
 
-    Layout: portrait intro page, a landscape section holding the
-    ``{{DECLARED_LIST}}`` placeholder, then portrait closing page(s).
+    Layout: portrait intro page (with ``{{CONFIGURATION_NAME}}``), a landscape
+    section holding the ``{{DECLARED_LIST}}`` placeholder, then portrait
+    closing page(s).
 
     Args:
         path: Destination .docx path.
@@ -61,6 +64,8 @@ def make_template_docx(path: Path) -> None:
     first = doc.sections[0]
     first.page_width, first.page_height = Mm(210), Mm(297)  # A4 portrait
     doc.add_heading("Declared List", level=0)
+    # Filled with the configuration name entered in the tool.
+    doc.add_paragraph("Configuration: {{CONFIGURATION_NAME}}")
     doc.add_paragraph(
         "This document contains the declared list for the project. "
         "The list is provided in table form on the following page(s)."

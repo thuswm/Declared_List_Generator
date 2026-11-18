@@ -12,17 +12,54 @@
   <header class="app-header">
     <h1>Declared List Generator</h1>
     <span id="source" class="muted"></span>
+    <span id="current" class="current" aria-live="polite" hidden></span>
+    <button id="exit-btn" type="button" class="exit-btn" title="Stop the tool">Exit</button>
   </header>
+
+  <!-- Shown instead of the app once the server has been stopped with Exit. -->
+  <div id="stopped" class="stopped panel" hidden>
+    <h2>The Declared List Generator has stopped.</h2>
+    <p>You can close this tab. Start the tool again with <code>python -m dlg</code>.</p>
+  </div>
 
   <div id="status" class="status" role="status" aria-live="polite" hidden></div>
 
   <main>
+    <details id="settings" class="panel settings">
+      <summary><h2>Settings</h2></summary>
+      <div class="row">
+        <label for="items-file">Item database</label>
+        <input id="items-file" type="text" class="wide path" spellcheck="false" placeholder="Full path to the .xlsx file">
+        <button id="items-browse" type="button">Browse…</button>
+      </div>
+      <div class="row">
+        <label for="id-column">ID column</label>
+        <input id="id-column" type="text" maxlength="200" spellcheck="false"
+               placeholder="Header of the column with unique item IDs">
+      </div>
+      <div class="row">
+        <label for="output-dir">Output folder</label>
+        <input id="output-dir" type="text" class="wide path" spellcheck="false" placeholder="Folder for generated Word documents">
+        <button id="output-browse" type="button">Browse…</button>
+      </div>
+      <div class="row">
+        <span class="label-gap"></span>
+        <button id="settings-save" type="button" class="accent">Save settings</button>
+        <span id="config-file" class="muted small"></span>
+      </div>
+    </details>
+
     <section class="panel" aria-labelledby="session-heading">
       <h2 id="session-heading">Session</h2>
       <div class="row">
         <label for="session-name">Name</label>
         <input id="session-name" type="text" maxlength="200" placeholder="e.g. Project A">
         <button id="save-btn" type="button">Save</button>
+      </div>
+      <div class="row">
+        <label for="config-name">Configuration</label>
+        <input id="config-name" type="text" maxlength="500" class="wide"
+               placeholder="Configuration the items belong to, e.g. Rig 7, build B">
       </div>
       <div class="row">
         <label for="session-list">Saved</label>
@@ -37,23 +74,24 @@
       <div class="row toolbar">
         <label for="search" class="sr-only">Search</label>
         <input id="search" type="search" placeholder="Search items…" autocomplete="off">
-        <label for="category" class="sr-only">Category</label>
-        <select id="category"><option value="">All categories</option></select>
         <label class="inline"><input id="only-selected" type="checkbox"> Selected only</label>
+        <button id="clear-filters-btn" type="button" disabled>Clear filters</button>
         <button id="clear-btn" type="button">Clear selection</button>
         <span id="count" class="muted" aria-live="polite"></span>
+      </div>
+      <div class="row export-row">
+        <label for="file-name">File name</label>
+        <input id="file-name" type="text" maxlength="200" spellcheck="false" class="file-name">
+        <span class="muted">.docx</span>
         <button id="export-btn" type="button" class="primary">Export Word document</button>
       </div>
 
       <div class="table-wrap">
         <table>
           <thead>
-            <tr>
+            <tr id="head-row">
               <th class="check"><input id="select-visible" type="checkbox" aria-label="Select all visible items"></th>
-              <th>ID</th>
-              <th>Name</th>
-              <th>Description</th>
-              <th>Category</th>
+              <!-- Column headers are added by app.js from the item database. -->
             </tr>
           </thead>
           <tbody id="rows"></tbody>
@@ -62,6 +100,40 @@
       </div>
     </section>
   </main>
+
+  <!-- File/folder chooser; the server lists the folders (browsers cannot reveal real paths). -->
+  <dialog id="browse-dialog" class="browse-dialog" aria-labelledby="browse-title">
+    <h2 id="browse-title"></h2>
+    <div class="row">
+      <label for="browse-roots" class="sr-only">Go to</label>
+      <select id="browse-roots"></select>
+      <button id="browse-up" type="button" title="Parent folder">↑ Up</button>
+      <label for="browse-path" class="sr-only">Folder</label>
+      <input id="browse-path" type="text" class="wide path" spellcheck="false">
+      <button id="browse-go" type="button">Go</button>
+    </div>
+    <ul id="browse-list" class="browse-list" aria-label="Folder contents"></ul>
+    <p id="browse-error" class="browse-error" role="alert" hidden></p>
+    <div class="row browse-actions">
+      <span id="browse-choice" class="muted path"></span>
+      <button id="browse-cancel" type="button">Cancel</button>
+      <button id="browse-select" type="button" class="accent">Select</button>
+    </div>
+  </dialog>
+
+  <!-- Excel-style filter for one column; opened from a header's filter button. -->
+  <div id="filter-panel" class="filter-panel" role="dialog" aria-labelledby="filter-title" hidden>
+    <div id="filter-title" class="filter-title"></div>
+    <label for="filter-query" class="sr-only">Search values</label>
+    <input id="filter-query" type="search" placeholder="Search values…" autocomplete="off">
+    <label class="filter-option filter-all"><input id="filter-all" type="checkbox"> (Select all)</label>
+    <div id="filter-values" class="filter-values"></div>
+    <div class="filter-actions">
+      <button id="filter-clear" type="button">Clear filter</button>
+      <button id="filter-cancel" type="button">Cancel</button>
+      <button id="filter-ok" type="button" class="accent">OK</button>
+    </div>
+  </div>
 
   <script type="module" src="app.js"></script>
 </body>
