@@ -4,13 +4,21 @@
  * Talks to the FastAPI backend (/api/...). Item text is only ever inserted
  * with textContent, never innerHTML, so spreadsheet content cannot inject markup.
  */
-import { errorMessage, filterItems, headerState, partitionIds, setMany } from './logic.js';
+import {
+  chooseFilter, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds, setMany,
+} from './logic.js';
+
+/** Label shown for empty cells in a filter list. */
+const BLANK_LABEL = '(Blanks)';
 
 const state = {
   columns: [], // shown column names, in database order
   items: [],
   selected: new Set(),
-  filter: { search: '', onlySelected: false },
+  // columns: column name -> Set of allowed values (only filtered columns are present).
+  filter: { search: '', onlySelected: false, columns: {} },
+  // The open filter panel: column, offered values, ticked values, typed text, opening button.
+  panel: null,
   sessions: [],
   sessionName: '', // name of the session last loaded or saved
   dirty: false, // selection changed since last load/save
@@ -20,6 +28,9 @@ const $ = (id) => document.getElementById(id);
 const el = {
   source: $('source'), status: $('status'), rows: $('rows'), empty: $('empty'),
   search: $('search'), onlySelected: $('only-selected'), headRow: $('head-row'),
+  clearFilters: $('clear-filters-btn'), panel: $('filter-panel'), panelTitle: $('filter-title'),
+  panelQuery: $('filter-query'), panelAll: $('filter-all'), panelValues: $('filter-values'),
+  panelOk: $('filter-ok'), panelCancel: $('filter-cancel'), panelClear: $('filter-clear'),
   clear: $('clear-btn'), count: $('count'), exportBtn: $('export-btn'),
   selectVisible: $('select-visible'), sessionName: $('session-name'),
   sessionList: $('session-list'), save: $('save-btn'), load: $('load-btn'), del: $('delete-btn'),
@@ -132,6 +143,9 @@ function updateSummary() {
   el.selectVisible.indeterminate = hs === 'some';
   el.selectVisible.disabled = shown.length === 0;
   el.exportBtn.disabled = n === 0;
+  const nFilters = Object.keys(state.filter.columns).length;
+  el.clearFilters.textContent = nFilters ? `Clear filters (${nFilters})` : 'Clear filters';
+  el.clearFilters.disabled = nFilters === 0;
   el.clear.disabled = n === 0;
   el.del.disabled = !el.sessionList.value;
   el.load.disabled = !el.sessionList.value;
@@ -146,14 +160,176 @@ function changeSelection(next) {
   state.dirty = true;
 }
 
-/** Rebuild the column headers (after the select-all checkbox) from the database columns. */
+/** Build the column headers (after the select-all checkbox), each with a filter button. */
 function renderHeader() {
   const check = el.headRow.firstElementChild;
   el.headRow.replaceChildren(check, ...state.columns.map((c) => {
-    const th = make('th', c);
+    const th = make('th');
     th.scope = 'col';
+    const inner = make('div', '', 'th-inner');
+    const btn = make('button', '▾', 'filter-btn');
+    btn.type = 'button';
+    btn.dataset.column = c;
+    btn.setAttribute('aria-haspopup', 'dialog');
+    btn.setAttribute('aria-expanded', 'false');
+    inner.append(make('span', c), btn);
+    th.append(inner);
     return th;
   }));
+  updateFilterButtons();
+}
+
+/** Highlight the filter buttons of filtered columns. */
+function updateFilterButtons() {
+  for (const btn of el.headRow.querySelectorAll('.filter-btn')) {
+    const active = Object.hasOwn(state.filter.columns, btn.dataset.column);
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-label', `Filter ${btn.dataset.column}${active ? ' (filtered)' : ''}`);
+    btn.title = active ? 'Filtered – click to change' : 'Filter this column';
+  }
+}
+
+/** Apply a change to the column filters and refresh the table. */
+function filtersChanged() {
+  updateFilterButtons();
+  renderRows();
+}
+
+/**
+ * Open the filter panel for a column, below its header button.
+ * @param {HTMLButtonElement} btn The column's filter button.
+ */
+function openFilter(btn) {
+  const column = btn.dataset.column;
+  if (state.panel) closeFilter(false);
+  const values = filterValues(state.items, state.filter.columns, column);
+  const current = state.filter.columns[column];
+  state.panel = {
+    column, values, button: btn, query: '',
+    checked: new Set(current ? values.filter((v) => current.has(v)) : values),
+  };
+  el.panelTitle.textContent = `Filter: ${column}`;
+  el.panelQuery.value = '';
+  el.panelClear.disabled = !current;
+  renderFilterList();
+  el.panel.hidden = false;
+  btn.setAttribute('aria-expanded', 'true');
+  positionPanel();
+  el.panelQuery.focus();
+}
+
+/** Place the panel under its button, kept inside the window. */
+function positionPanel() {
+  const r = state.panel.button.getBoundingClientRect();
+  const w = el.panel.offsetWidth;
+  el.panel.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
+  el.panel.style.top = `${Math.min(r.bottom + 4, Math.max(8, window.innerHeight - el.panel.offsetHeight - 8))}px`;
+}
+
+/** Values of the open panel that match the typed text. */
+const listedValues = () => state.panel.values.filter((v) => matchesQuery(v, state.panel.query, BLANK_LABEL));
+
+/** Rebuild the value checkboxes of the open panel and its select-all/OK state. */
+function renderFilterList() {
+  const listed = listedValues();
+  const frag = document.createDocumentFragment();
+  for (const v of listed) {
+    const label = make('label', '', 'filter-option');
+    const cb = make('input');
+    cb.type = 'checkbox';
+    cb.checked = state.panel.checked.has(v);
+    cb.dataset.value = v;
+    label.append(cb, v === '' ? make('span', BLANK_LABEL, 'filter-blank') : make('span', v));
+    frag.append(label);
+  }
+  if (listed.length === 0) frag.append(make('p', 'No matching values.', 'muted filter-option'));
+  el.panelValues.replaceChildren(frag);
+  updateFilterControls();
+}
+
+/** Refresh the select-all box and OK button without rebuilding the list. */
+function updateFilterControls() {
+  const listed = listedValues();
+  const n = listed.filter((v) => state.panel.checked.has(v)).length;
+  el.panelAll.checked = listed.length > 0 && n === listed.length;
+  el.panelAll.indeterminate = n > 0 && n < listed.length;
+  el.panelAll.disabled = listed.length === 0;
+  el.panelOk.disabled = n === 0; // an empty filter would hide every row
+}
+
+/**
+ * Close the filter panel.
+ * @param {boolean} [refocus] Return focus to the column's filter button.
+ */
+function closeFilter(refocus = true) {
+  if (!state.panel) return;
+  const { button } = state.panel;
+  button.setAttribute('aria-expanded', 'false');
+  el.panel.hidden = true;
+  state.panel = null;
+  if (refocus) button.focus();
+}
+
+/** Apply the open panel's choice (OK). */
+function applyFilter() {
+  const { column, values, checked, query } = state.panel;
+  const allowed = chooseFilter(values, checked, query);
+  if (allowed) state.filter.columns[column] = allowed;
+  else delete state.filter.columns[column];
+  closeFilter();
+  filtersChanged();
+}
+
+/** Remove the open panel's column filter. */
+function clearColumnFilter() {
+  delete state.filter.columns[state.panel.column];
+  closeFilter();
+  filtersChanged();
+}
+
+/** Wire up the column filter buttons and the filter panel. */
+function bindFilterEvents() {
+  el.headRow.addEventListener('click', (e) => {
+    const btn = e.target.closest('.filter-btn');
+    if (!btn) return;
+    if (state.panel?.button === btn) closeFilter();
+    else openFilter(btn);
+  });
+  el.panelQuery.addEventListener('input', () => {
+    state.panel.query = el.panelQuery.value;
+    renderFilterList();
+  });
+  el.panelValues.addEventListener('change', (e) => {
+    const v = e.target.dataset.value;
+    if (v === undefined) return;
+    if (e.target.checked) state.panel.checked.add(v);
+    else state.panel.checked.delete(v);
+    updateFilterControls();
+  });
+  el.panelAll.addEventListener('change', () => {
+    for (const v of listedValues()) {
+      if (el.panelAll.checked) state.panel.checked.add(v);
+      else state.panel.checked.delete(v);
+    }
+    renderFilterList();
+  });
+  el.panelOk.addEventListener('click', applyFilter);
+  el.panelCancel.addEventListener('click', () => closeFilter());
+  el.panelClear.addEventListener('click', clearColumnFilter);
+  el.panel.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeFilter();
+    else if (e.key === 'Enter' && e.target === el.panelQuery && !el.panelOk.disabled) applyFilter();
+  });
+  // Clicking elsewhere cancels, like a menu.
+  document.addEventListener('mousedown', (e) => {
+    if (state.panel && !el.panel.contains(e.target) && e.target !== state.panel.button) closeFilter(false);
+  });
+  window.addEventListener('resize', () => closeFilter(false));
+  el.clearFilters.addEventListener('click', () => {
+    state.filter.columns = {};
+    closeFilter(false);
+    filtersChanged();
+  });
 }
 
 /** Rebuild the saved-sessions dropdown. */
@@ -268,6 +444,7 @@ async function exportDocument() {
 
 /** Wire up all event handlers. */
 function bindEvents() {
+  bindFilterEvents();
   el.rows.addEventListener('change', (e) => {
     const tr = e.target.closest('tr');
     if (!tr) return;

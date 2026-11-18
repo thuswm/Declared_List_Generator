@@ -100,9 +100,15 @@ are appended to an existing file with their defaults, so you can see and change 
 
 ## Using it
 
-1. Tick the items that belong on the declared list (search, or click a row).
-   The search covers all shown columns. The header checkbox selects everything
-   currently shown.
+1. Tick the items that belong on the declared list (click the checkbox or the
+   row). The header checkbox selects everything currently shown.
+   - **Search** looks in all shown columns (every word must match).
+   - **Column filters** work like Excel's: click ▾ in a column header, tick the
+     values to show (type in the box to narrow the list; Enter = OK). The list
+     only offers values left by the other columns' filters. A filtered column's
+     ▾ is highlighted; **Clear filters** removes them all.
+   - Search, column filters and **Selected only** all apply together.
+     Filters are not saved in the session.
 2. Enter a name and **Save** to store the selection as a session; **Load** a
    saved session later.
 3. **Export Word document** downloads `declared_list.docx`.

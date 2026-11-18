@@ -38,6 +38,7 @@
         <label for="search" class="sr-only">Search</label>
         <input id="search" type="search" placeholder="Search items…" autocomplete="off">
         <label class="inline"><input id="only-selected" type="checkbox"> Selected only</label>
+        <button id="clear-filters-btn" type="button" disabled>Clear filters</button>
         <button id="clear-btn" type="button">Clear selection</button>
         <span id="count" class="muted" aria-live="polite"></span>
         <button id="export-btn" type="button" class="primary">Export Word document</button>
@@ -57,6 +58,20 @@
       </div>
     </section>
   </main>
+
+  <!-- Excel-style filter for one column; opened from a header's filter button. -->
+  <div id="filter-panel" class="filter-panel" role="dialog" aria-labelledby="filter-title" hidden>
+    <div id="filter-title" class="filter-title"></div>
+    <label for="filter-query" class="sr-only">Search values</label>
+    <input id="filter-query" type="search" placeholder="Search values…" autocomplete="off">
+    <label class="filter-option filter-all"><input id="filter-all" type="checkbox"> (Select all)</label>
+    <div id="filter-values" class="filter-values"></div>
+    <div class="filter-actions">
+      <button id="filter-clear" type="button">Clear filter</button>
+      <button id="filter-cancel" type="button">Cancel</button>
+      <button id="filter-ok" type="button" class="accent">OK</button>
+    </div>
+  </div>
 
   <script type="module" src="app.js"></script>
 </body>

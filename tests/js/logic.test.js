@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  errorMessage, filterItems, headerState, partitionIds, setMany,
+  chooseFilter, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds, setMany,
 } from '../../src/dlg/static/logic.js';
 
 const row = (id, name, description, category, supplier = '') => (
@@ -66,4 +66,55 @@ test('errorMessage handles string, list and missing detail', () => {
   assert.equal(errorMessage({ detail: 'Nope' }, 'fb'), 'Nope');
   assert.equal(errorMessage({ detail: [{ loc: ['body', 'name'], msg: 'too short' }] }, 'fb'), 'name: too short');
   assert.equal(errorMessage(null, 'fb'), 'fb');
+});
+
+const ids = (list) => list.map((i) => i.id);
+
+test('column filters: only allowed values pass; blank cells count as ""', () => {
+  const columns = { Category: new Set(['Hydraulics']) };
+  assert.deepEqual(ids(filterItems(items, { ...none, columns }, new Set())), ['A1', 'C3']);
+  const blanks = { Supplier: new Set(['']) };
+  assert.deepEqual(ids(filterItems(items, { ...none, columns: blanks }, new Set())), ['B2', 'C3']);
+  const missing = [{ id: 'X', values: {} }];
+  assert.deepEqual(ids(filterItems(missing, { ...none, columns: blanks }, new Set())), ['X']);
+});
+
+test('column filters combine with each other, search and selected-only (AND)', () => {
+  const columns = { Category: new Set(['Hydraulics', 'Sensors']), Supplier: new Set(['']) };
+  assert.deepEqual(ids(filterItems(items, { ...none, columns }, new Set())), ['B2', 'C3']);
+  assert.deepEqual(ids(filterItems(items, { ...none, columns, search: 'valve' }, new Set())), ['C3']);
+  assert.deepEqual(ids(filterItems(items, { ...none, columns, onlySelected: true }, new Set(['B2']))), ['B2']);
+});
+
+test('filterValues: distinct, natural order, blanks last', () => {
+  const list = [
+    { id: '1', values: { Pos: 'A10' } }, { id: '2', values: { Pos: 'a2' } },
+    { id: '3', values: { Pos: '' } }, { id: '4', values: { Pos: 'A10' } }, { id: '5', values: {} },
+  ];
+  assert.deepEqual(filterValues(list, {}, 'Pos'), ['a2', 'A10', '']);
+});
+
+test('filterValues: cascades from the other columns, ignoring its own filter', () => {
+  const columns = { Category: new Set(['Sensors']), Supplier: new Set(['Acme']) };
+  // Supplier list is narrowed by the Category filter only, not by its own filter.
+  assert.deepEqual(filterValues(items, columns, 'Supplier'), ['']);
+  assert.deepEqual(filterValues(items, { Category: new Set(['Sensors']) }, 'Category'),
+    ['Hydraulics', 'Sensors']);
+});
+
+test('matchesQuery: case-insensitive substring; blanks match their label', () => {
+  assert.equal(matchesQuery('Hydraulics', 'DRAU'), true);
+  assert.equal(matchesQuery('Hydraulics', '  '), true);
+  assert.equal(matchesQuery('Sensors', 'hyd'), false);
+  assert.equal(matchesQuery('', 'blank'), true);
+  assert.equal(matchesQuery('', 'x'), false);
+});
+
+test('chooseFilter: all ticked means no filter; typed text keeps only listed ticked values', () => {
+  const values = ['Electrical', 'Hydraulics', 'Sensors', ''];
+  assert.equal(chooseFilter(values, new Set(values), ''), null);
+  assert.deepEqual([...chooseFilter(values, new Set(['Sensors', '']), '')], ['Sensors', '']);
+  // Excel behaviour: with search text, unlisted values are dropped even if ticked.
+  assert.deepEqual([...chooseFilter(values, new Set(values), 'sens')], ['Sensors']);
+  assert.deepEqual([...chooseFilter(values, new Set(), '')], []);
 });

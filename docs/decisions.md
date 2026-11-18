@@ -3,6 +3,14 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-18 – Excel-style column filters (0.2.0 step 4)
+- State: `filter.columns = {column: Set(allowed values)}`; a column is absent when unfiltered. Blank cells are the value `""`, listed as "(Blanks)" (last in the list); typing "blank" finds them.
+- Like Excel: a column's value list only shows values from rows passing the *other* column filters (not its own, not search/selected-only). With text typed in the panel, OK keeps only the listed *and* ticked values. All values ticked = filter removed. OK is disabled when nothing is ticked (would hide everything).
+- Value list sorted with natural order (`A2` before `A10`), case-insensitive.
+- Filters are view state: not saved in sessions, reset on reload.
+- Panel: one shared `role="dialog"` element, `position: fixed`, clamped inside the window; Escape/Cancel/outside click cancel; focus returns to the column's button. Closed on window resize (position would go stale).
+- Pure logic in `logic.js` (`filterValues`, `matchesQuery`, `chooseFilter`, `filterItems`), Node-tested. UI checked in headless Chromium driven over the DevTools protocol (scratch script, not part of the repo: Playwright's Python package isn't installed).
+
 ## 2026-11-18 – Columns from the Excel file (0.2.0 step 3)
 - Model: `ItemTable(id_column, columns: list[Column], items)`, `Item(id, values: dict[column -> text])`. `values` holds every shown column (incl. the ID column) in sheet order, `""` for empty cells. `Column` is an object (not a bare string) so step 7 can add a `user_input` flag without changing the API shape.
 - `ItemSource.load() -> ItemTable` replaces `load_items()`. Fixed `name/description/category/extra` fields, `TABLE_COLUMNS`, the docgen `Column` dataclass and the category dropdown are gone.

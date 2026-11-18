@@ -72,3 +72,25 @@ tbody tr { cursor: pointer; }
 tbody tr:hover { background: color-mix(in srgb, var(--selected) 50%, transparent); }
 tbody tr.selected { background: var(--selected); }
 #empty { padding: 1rem; margin: 0; }
+
+/* Column headers with an Excel-style filter button. */
+.th-inner { display: flex; align-items: center; gap: .35rem; justify-content: space-between; }
+.filter-btn { padding: 0 .35rem; line-height: 1.4; font-size: .85rem; color: var(--muted); }
+.filter-btn.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+button.accent { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+
+.filter-panel {
+  position: fixed; z-index: 10; width: 18rem; max-width: calc(100vw - 16px);
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / .18); padding: .6rem; display: grid; gap: .45rem;
+}
+.filter-panel[hidden] { display: none; }
+.filter-title { font-weight: 600; overflow-wrap: anywhere; }
+.filter-panel input[type="search"] { min-width: 0; width: 100%; }
+.filter-values { max-height: 16rem; overflow: auto; border: 1px solid var(--border); border-radius: 6px; padding: .25rem 0; }
+.filter-option { display: flex; align-items: flex-start; gap: .4rem; padding: .15rem .5rem; cursor: pointer; overflow-wrap: anywhere; }
+.filter-option:hover { background: color-mix(in srgb, var(--selected) 50%, transparent); }
+.filter-option input { margin-top: .25rem; }
+.filter-all { padding-left: .5rem; }
+.filter-blank { font-style: italic; color: var(--muted); }
+.filter-actions { display: flex; gap: .4rem; justify-content: flex-end; }

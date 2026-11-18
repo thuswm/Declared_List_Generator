@@ -15,10 +15,26 @@ function searchText(item) {
 }
 
 /**
- * Filter items by search text and "selected only".
+ * Check an item against the column filters.
+ * @param {{values:Object<string,string>}} item The item.
+ * @param {Object<string,Set<string>>} columnFilters Allowed values per filtered column.
+ * @param {string} [except] Column to ignore (used to build that column's value list).
+ * @returns {boolean} True if the item's value is allowed in every filtered column.
+ */
+function passesColumnFilters(item, columnFilters, except) {
+  for (const [column, allowed] of Object.entries(columnFilters || {})) {
+    if (column === except) continue;
+    if (!allowed.has(item.values[column] ?? '')) return false;
+  }
+  return true;
+}
+
+/**
+ * Filter items by column filters, search text and "selected only" (all must pass).
  * Every whitespace-separated search term must appear somewhere in the item.
  * @param {Array} items All items.
- * @param {{search:string,onlySelected:boolean}} filter Active filter.
+ * @param {{search:string,onlySelected:boolean,columns?:Object<string,Set<string>>}} filter
+ *   Active filter; `columns` maps a column name to its allowed values (absent = unfiltered).
  * @param {Set<string>} selected IDs of selected items.
  * @returns {Array} Items that pass the filter, in original order.
  */
@@ -26,10 +42,65 @@ export function filterItems(items, filter, selected) {
   const terms = filter.search.toLowerCase().split(/\s+/).filter(Boolean);
   return items.filter((item) => {
     if (filter.onlySelected && !selected.has(item.id)) return false;
+    if (!passesColumnFilters(item, filter.columns)) return false;
     if (terms.length === 0) return true;
     const text = searchText(item);
     return terms.every((t) => text.includes(t));
   });
+}
+
+/**
+ * Sort cell values for a filter list: natural order ("A2" before "A10"), blanks last.
+ * @param {string} a First value.
+ * @param {string} b Second value.
+ * @returns {number} Comparison result.
+ */
+function compareValues(a, b) {
+  if (a === '' || b === '') return (a === '') - (b === '');
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+/**
+ * List the values to offer in a column's filter, like Excel: only values of
+ * items that pass the filters on the *other* columns.
+ * @param {Array} items All items.
+ * @param {Object<string,Set<string>>} columnFilters Active column filters.
+ * @param {string} column The column whose filter is being opened.
+ * @returns {string[]} Distinct values, sorted; '' (blank) last if present.
+ */
+export function filterValues(items, columnFilters, column) {
+  const values = new Set();
+  for (const item of items) {
+    if (passesColumnFilters(item, columnFilters, column)) values.add(item.values[column] ?? '');
+  }
+  return [...values].sort(compareValues);
+}
+
+/**
+ * Check whether a value matches the text typed in a filter panel.
+ * @param {string} value Cell value ('' = blank).
+ * @param {string} query Typed text.
+ * @param {string} blankLabel Label shown for blank values, so typing it finds them.
+ * @returns {boolean} True if the value should be listed.
+ */
+export function matchesQuery(value, query, blankLabel = '(Blanks)') {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return (value === '' ? blankLabel : value).toLowerCase().includes(q);
+}
+
+/**
+ * Work out a column's new filter when OK is pressed in its filter panel.
+ * As in Excel, only values that are both listed (match the typed text) and
+ * checked are kept.
+ * @param {string[]} values All values offered for the column.
+ * @param {Set<string>} checked Values whose box is ticked.
+ * @param {string} query Text typed in the panel's search box.
+ * @returns {Set<string>|null} Allowed values, or null when nothing is filtered out.
+ */
+export function chooseFilter(values, checked, query) {
+  const allowed = new Set(values.filter((v) => checked.has(v) && matchesQuery(v, query)));
+  return allowed.size === values.length ? null : allowed;
 }
 
 /**
