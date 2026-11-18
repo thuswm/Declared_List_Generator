@@ -1,6 +1,7 @@
 """Command-line launcher: ``python -m dlg``.
 
-Starts the local web server and opens the GUI in the default browser.
+Starts the local web server and opens the GUI in the default browser. The
+server stops with Ctrl+C or the GUI's Exit button.
 """
 
 from __future__ import annotations
@@ -47,7 +48,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         # Delay slightly so the server is accepting connections when the tab opens.
         url = f"http://{'localhost' if host == '127.0.0.1' else host}:{port}/"
         threading.Timer(1.0, webbrowser.open, args=(url,)).start()
-    uvicorn.run(create_app(config, config_path), host=host, port=port)
+    server: uvicorn.Server | None = None
+
+    def stop() -> None:
+        """Ask uvicorn to finish open requests and exit (used by the Exit button)."""
+        if server is not None:
+            server.should_exit = True
+
+    app = create_app(config, config_path, on_shutdown=stop)
+    # A Server object (instead of uvicorn.run) so the app can ask it to stop.
+    server = uvicorn.Server(uvicorn.Config(app, host=host, port=port))
+    server.run()
 
 
 if __name__ == "__main__":

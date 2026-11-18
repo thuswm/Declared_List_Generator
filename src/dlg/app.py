@@ -7,10 +7,11 @@ the per-user :class:`dlg.config.Config` (see ``dlg/config.py``).
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -211,7 +212,11 @@ def _checked_path(value: str, label: str) -> Path:
     return path
 
 
-def create_app(settings: Config | None = None, config_path: Path | None = None) -> FastAPI:
+def create_app(
+    settings: Config | None = None,
+    config_path: Path | None = None,
+    on_shutdown: Callable[[], None] | None = None,
+) -> FastAPI:
     """Build the FastAPI application.
 
     Args:
@@ -219,6 +224,8 @@ def create_app(settings: Config | None = None, config_path: Path | None = None) 
             defaults (the per-user file is loaded by the launcher).
         config_path: File that settings changed in the GUI are saved to;
             None keeps changes in memory only (used by tests).
+        on_shutdown: Called to stop the server when the user clicks Exit;
+            None disables the Exit endpoint (no server to stop).
 
     Returns:
         The configured application.
@@ -404,6 +411,18 @@ def create_app(settings: Config | None = None, config_path: Path | None = None) 
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except BrowseError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    @app.post("/api/shutdown", status_code=202, dependencies=[Depends(require_local)])
+    def shutdown(background: BackgroundTasks) -> dict[str, str]:
+        """Stop the server (the GUI's Exit button).
+
+        The stop is requested in a background task, which runs after the
+        response has been sent, so the browser still gets its answer.
+        """
+        if on_shutdown is None:
+            raise HTTPException(status_code=503, detail="Exit is not available here; stop the server with Ctrl+C.")
+        background.add_task(on_shutdown)
+        return {"status": "stopping"}
 
     # Mounted last so it never shadows the /api routes.
     if STATIC_DIR.is_dir():

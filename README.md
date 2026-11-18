@@ -63,7 +63,8 @@ scripts once for your user:
 Options: `--config`, `--port 9000`, `--no-browser`, `--host`. The server listens on
 `127.0.0.1` only by default. There is no authentication, so do not expose it
 on an untrusted network. If the port is already in use, pick another with
-`--port`. Stop the server with Ctrl+C in the terminal.
+`--port`. Stop the tool with the **Exit** button at the top right of the page
+(it warns about unsaved changes first), or with Ctrl+C in the terminal.
 
 ### Configuration
 

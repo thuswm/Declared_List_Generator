@@ -354,3 +354,16 @@ def test_unchanged_missing_output_folder_does_not_block_saving(tmp_path: Path) -
     c = TestClient(create_app(Config(sessions_dir=tmp_path / "s", output_dir=missing)), client=LOCAL)
     r = c.put("/api/settings", json={"output_dir": str(missing), "id_column": "ID"})
     assert r.status_code == 200, r.text
+
+
+def test_shutdown_endpoint(tmp_path: Path) -> None:
+    """Exit calls the stop callback after answering; it is local-only and needs a server."""
+    stopped: list[bool] = []
+    app = create_app(Config(sessions_dir=tmp_path / "s"), on_shutdown=lambda: stopped.append(True))
+    assert TestClient(app, client=("10.0.0.5", 1)).post("/api/shutdown").status_code == 403
+    assert stopped == []
+    r = TestClient(app, client=LOCAL).post("/api/shutdown")
+    assert r.status_code == 202 and r.json() == {"status": "stopping"}
+    assert stopped == [True]
+    r = TestClient(create_app(Config(sessions_dir=tmp_path / "s")), client=LOCAL).post("/api/shutdown")
+    assert r.status_code == 503 and "Ctrl+C" in r.json()["detail"]

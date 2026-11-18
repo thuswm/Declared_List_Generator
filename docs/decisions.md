@@ -3,6 +3,12 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-18 – Exit button (0.2.0 step 10)
+- `POST /api/shutdown` (local-only, 202) schedules `on_shutdown` as a FastAPI background task, so the response is sent before the server begins to stop. `create_app(..., on_shutdown=None)` → 503 "use Ctrl+C" (tests/programmatic use).
+- The launcher builds `uvicorn.Server(uvicorn.Config(...))` itself instead of `uvicorn.run`, and `on_shutdown` sets `server.should_exit = True`: uvicorn's normal graceful shutdown (finishes open requests, process exits with code 0). Verified end to end: clicking Exit in headless Chromium ends the server process.
+- GUI: Exit button top right; confirms (stronger wording with unsaved changes); afterwards hides the app, shows a "stopped" panel, clears the dirty flag (no "leave page?" prompt) and tries `window.close()` (only works for script-opened tabs).
+- Gotcha: author CSS `display: flex/grid` on `header`/`main` overrides the `hidden` attribute, so "hidden" elements stayed visible; the check passed because it read the attribute. Added a global `[hidden] { display: none !important; }`, and browser checks now assert the computed `display`.
+
 ## 2026-11-18 – Output file name & location (0.2.0 step 9)
 - `POST /api/export` now **writes** `<output_dir>/<name>.docx` (folder created) and returns `{path, file_name, count}`; the browser download, `render_to_bytes` and `DOCX_MEDIA_TYPE` are gone. Request adds `file_name`, `configuration_name`, `overwrite`.
 - Existing file without `overwrite` → 409; the GUI confirms and resends with `overwrite: true` (`api()` errors now carry `status`).

@@ -13,7 +13,20 @@ from dlg import __main__ as launcher
 def calls(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict:
     """Replace uvicorn.run and threading.Timer with recorders."""
     rec: dict = {"timers": [], "config": str(tmp_path / "cfg.toml")}
-    monkeypatch.setattr(launcher.uvicorn, "run", lambda *a, **k: rec.update(run=(a, k)))
+
+    class FakeServer:
+        """Records the uvicorn config instead of serving."""
+
+        def __init__(self, config) -> None:
+            self.config = config
+            self.should_exit = False
+            rec["server"] = self
+
+        def run(self) -> None:
+            """Record the host/port it would serve on."""
+            rec["run"] = ((self.config.app,), {"host": self.config.host, "port": self.config.port})
+
+    monkeypatch.setattr(launcher.uvicorn, "Server", FakeServer)
 
     class FakeTimer:
         """Records the scheduled call instead of starting a thread."""
@@ -65,3 +78,16 @@ def test_invalid_config_exits_with_message(calls: dict, capsys: pytest.CaptureFi
         launcher.main(["--config", calls["config"]])
     assert exc.value.code == 2
     assert "not valid TOML" in capsys.readouterr().err
+
+
+def test_exit_endpoint_stops_the_server(calls: dict) -> None:
+    """The app's shutdown endpoint asks the launcher's server to exit."""
+    from fastapi.testclient import TestClient
+
+    launcher.main(["--config", calls["config"], "--no-browser"])
+    app = calls["run"][0][0]
+    server = calls["server"]
+    assert server.should_exit is False
+    r = TestClient(app, client=("127.0.0.1", 5)).post("/api/shutdown")
+    assert r.status_code == 202
+    assert server.should_exit is True

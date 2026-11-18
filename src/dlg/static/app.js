@@ -44,7 +44,7 @@ const el = {
   browseCancel: $('browse-cancel'), browseSelect: $('browse-select'),
   clear: $('clear-btn'), count: $('count'), exportBtn: $('export-btn'),
   selectVisible: $('select-visible'), sessionName: $('session-name'), configName: $('config-name'),
-  current: $('current'), fileName: $('file-name'),
+  current: $('current'), fileName: $('file-name'), exitBtn: $('exit-btn'), stopped: $('stopped'),
   sessionList: $('session-list'), save: $('save-btn'), load: $('load-btn'), del: $('delete-btn'),
 };
 
@@ -710,8 +710,30 @@ function bindSettingsEvents() {
   el.browseSelect.addEventListener('click', chooseBrowse);
 }
 
+/** Stop the server (after a warning about unsaved changes) and show that it has stopped. */
+async function exitTool() {
+  if (state.dirty && !window.confirm('You have unsaved changes to the current session. Exit anyway?')) return;
+  if (!state.dirty && !window.confirm('Stop the Declared List Generator?')) return;
+  try {
+    await api('/api/shutdown', { method: 'POST' });
+  } catch (err) {
+    showStatus(err.message, 'error');
+    return;
+  }
+  state.dirty = false; // nothing to protect any more; skip the "leave page?" prompt
+  closeFilter(false);
+  if (el.browse.open) el.browse.close();
+  for (const node of document.body.children) {
+    if (node !== el.stopped && node.tagName !== 'SCRIPT') node.hidden = true;
+  }
+  el.stopped.hidden = false;
+  document.title = 'Declared List Generator (stopped)';
+  window.close(); // only works for tabs opened by script; harmless otherwise
+}
+
 /** Wire up all event handlers. */
 function bindEvents() {
+  el.exitBtn.addEventListener('click', exitTool);
   bindFilterEvents();
   bindSettingsEvents();
   el.rows.addEventListener('change', (e) => {
