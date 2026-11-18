@@ -31,14 +31,16 @@ body {
   color: var(--text);
   font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
-.app-header { display: flex; align-items: baseline; gap: 1rem; padding: 1rem 1.25rem 0; }
+.app-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem 1rem; padding: 1rem 1.25rem 0; }
 h1 { font-size: 1.4rem; margin: 0; }
 h2 { font-size: 1.05rem; margin: 0 0 .6rem; }
 main { padding: 1rem 1.25rem 2rem; display: grid; gap: 1rem; }
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: .5rem; }
 .row:last-child { margin-bottom: 0; }
-.row > label:not(.inline) { min-width: 3.5rem; color: var(--muted); }
+.row > label:not(.inline) { min-width: 6.5rem; color: var(--muted); }
+input.wide { flex: 1 1 24rem; max-width: 40rem; }
+.current { margin-left: auto; font-weight: 600; overflow-wrap: anywhere; }
 .muted { color: var(--muted); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .inline { display: inline-flex; align-items: center; gap: .35rem; }

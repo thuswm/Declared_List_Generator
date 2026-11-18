@@ -2,7 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  chooseFilter, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds, setMany,
+  chooseFilter, currentLabel, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds,
+  sessionLabel, setMany,
 } from '../../src/dlg/static/logic.js';
 
 const row = (id, name, description, category, supplier = '') => (
@@ -117,4 +118,19 @@ test('chooseFilter: all ticked means no filter; typed text keeps only listed tic
   // Excel behaviour: with search text, unlisted values are dropped even if ticked.
   assert.deepEqual([...chooseFilter(values, new Set(values), 'sens')], ['Sensors']);
   assert.deepEqual([...chooseFilter(values, new Set(), '')], []);
+});
+
+test('sessionLabel shows the configuration name when set', () => {
+  const fmt = () => 'DATE';
+  assert.equal(sessionLabel({ name: 'P', configuration_name: 'Rig 7', count: 3, modified: 'x' }, fmt),
+    'P — Rig 7 — 3 items — DATE');
+  assert.equal(sessionLabel({ name: 'P', configuration_name: '', count: 1, modified: 'x' }, fmt),
+    'P — 1 item — DATE');
+  assert.equal(sessionLabel({ name: 'P', count: 0, modified: 'x' }, fmt), 'P — 0 items — DATE');
+});
+
+test('currentLabel', () => {
+  assert.equal(currentLabel('', 'Rig'), '');
+  assert.equal(currentLabel('P', ''), 'Session: P');
+  assert.equal(currentLabel('P', 'Rig 7'), 'Session: P · Configuration: Rig 7');
 });

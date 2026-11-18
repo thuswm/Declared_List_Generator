@@ -3,6 +3,12 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-18 – Configuration name in the GUI (0.2.0 step 6)
+- "Configuration" text field (max 500) under the session name; saved with the session (trimmed by the API), filled on load; editing it marks the session as changed. Enter saves.
+- Saved list entry: `Name — Configuration — n item(s) — date` (configuration omitted when empty); full text also as tooltip. Header shows `Session: … · Configuration: …` after load/save, hidden after deleting the current session. Label builders `sessionLabel`/`currentLabel` live in `logic.js` (Node-tested).
+- Saving under a new name keeps the field's configuration name ("save as" copies it).
+- Gotcha (test tooling): `pkill -f "<pattern>"` also matched the shell running it, killed the shell and left a test server alive on the port, so a later run talked to the old server. Stop background test processes by PID (`$!`) instead.
+
 ## 2026-11-18 – Session schema v2 (0.2.0 step 5)
 - `schema_version` 2 adds `configuration_name` (str) and `user_values` (`{item_id: {column: value}}`). `sessions.migrate()` upgrades raw data one version per step (v1 → v2 just sets the version; model defaults fill the new fields). The file on disk is only rewritten on the next save.
 - On save, `user_values` keeps only non-empty values of *selected* items (values of deselected items are dropped), in selection order. API strips `configuration_name`.

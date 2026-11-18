@@ -5,7 +5,8 @@
  * with textContent, never innerHTML, so spreadsheet content cannot inject markup.
  */
 import {
-  chooseFilter, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds, setMany,
+  chooseFilter, currentLabel, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds,
+  sessionLabel, setMany,
 } from './logic.js';
 
 /** Label shown for empty cells in a filter list. */
@@ -21,8 +22,8 @@ const state = {
   panel: null,
   sessions: [],
   sessionName: '', // name of the session last loaded or saved
-  // Kept from the loaded session and sent back on save (edited in the GUI from 0.2.0 steps 6-7).
-  configurationName: '',
+  configurationName: '', // configuration name of that session, as last loaded or saved
+  // Kept from the loaded session and sent back on save (edited in the GUI from 0.2.0 step 7).
   userValues: {},
   dirty: false, // selection changed since last load/save
 };
@@ -35,7 +36,8 @@ const el = {
   panelQuery: $('filter-query'), panelAll: $('filter-all'), panelValues: $('filter-values'),
   panelOk: $('filter-ok'), panelCancel: $('filter-cancel'), panelClear: $('filter-clear'),
   clear: $('clear-btn'), count: $('count'), exportBtn: $('export-btn'),
-  selectVisible: $('select-visible'), sessionName: $('session-name'),
+  selectVisible: $('select-visible'), sessionName: $('session-name'), configName: $('config-name'),
+  current: $('current'),
   sessionList: $('session-list'), save: $('save-btn'), load: $('load-btn'), del: $('delete-btn'),
 };
 
@@ -335,11 +337,19 @@ function bindFilterEvents() {
   });
 }
 
+/** Show the current session and its configuration in the page header. */
+function renderCurrent() {
+  const text = currentLabel(state.sessionName, state.configurationName);
+  el.current.textContent = text;
+  el.current.hidden = !text;
+}
+
 /** Rebuild the saved-sessions dropdown. */
 function renderSessions() {
   const options = state.sessions.map((s) => {
-    const when = new Date(s.modified).toLocaleString();
-    return new Option(`${s.name} — ${s.count} items — ${when}`, s.name);
+    const option = new Option(sessionLabel(s), s.name);
+    option.title = option.text; // full text on hover when the list is narrow
+    return option;
   });
   if (options.length === 0) options.push(new Option('(no saved sessions)', ''));
   el.sessionList.replaceChildren(...options);
@@ -379,12 +389,15 @@ async function saveSession() {
   try {
     const saved = await sendJson('/api/sessions', 'POST', {
       name,
-      configuration_name: state.configurationName,
+      configuration_name: el.configName.value.trim(),
       selected_ids: [...state.selected],
       user_values: state.userValues,
     });
     state.sessionName = saved.name;
+    state.configurationName = saved.configuration_name;
+    el.configName.value = saved.configuration_name;
     state.dirty = false;
+    renderCurrent();
     await refreshSessions();
     showStatus(`Saved "${saved.name}" (${saved.selected_ids.length} items).`);
   } catch (err) {
@@ -405,6 +418,8 @@ async function loadSession() {
     state.userValues = session.user_values;
     state.dirty = false;
     el.sessionName.value = session.name;
+    el.configName.value = session.configuration_name;
+    renderCurrent();
     renderRows();
     if (unknown.length) {
       showStatus(`Loaded "${session.name}", but ${unknown.length} item(s) are no longer in the database `
@@ -423,7 +438,11 @@ async function deleteSession() {
   if (!name || !window.confirm(`Delete session "${name}"? This cannot be undone.`)) return;
   try {
     await api(`/api/sessions/${encodeURIComponent(name)}`, { method: 'DELETE' });
-    if (state.sessionName === name) state.sessionName = '';
+    if (state.sessionName === name) {
+      state.sessionName = '';
+      state.configurationName = '';
+      renderCurrent();
+    }
     await refreshSessions();
     showStatus(`Deleted "${name}".`);
   } catch (err) {
@@ -490,6 +509,8 @@ function bindEvents() {
   el.del.addEventListener('click', deleteSession);
   el.exportBtn.addEventListener('click', exportDocument);
   el.sessionName.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveSession(); });
+  el.configName.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveSession(); });
+  el.configName.addEventListener('input', () => { state.dirty = true; });
   window.addEventListener('beforeunload', (e) => { if (state.dirty) e.preventDefault(); });
 }
 

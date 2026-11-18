@@ -109,8 +109,10 @@ are appended to an existing file with their defaults, so you can see and change 
      ▾ is highlighted; **Clear filters** removes them all.
    - Search, column filters and **Selected only** all apply together.
      Filters are not saved in the session.
-2. Enter a name and **Save** to store the selection as a session; **Load** a
-   saved session later.
+2. Enter a **Name** and, optionally, a **Configuration** (what the items
+   belong to, e.g. `Rig 7, build B`) and **Save** to store the selection as a
+   session. **Load** a saved session later; the list shows each session's
+   configuration, and the page header shows the current session and configuration.
 3. **Export Word document** downloads `declared_list.docx`.
 
 The Excel file is re-read on every page load, so you can edit it and refresh.
@@ -149,8 +151,8 @@ the browser table and written to the Word table, in sheet order.
   two names give the same file name (e.g. `a/b` and `a_b`, or `Proj` and `proj`
   on Windows), the second is stored as `a_b (2).json`.
 - `configuration_name` describes the configuration the items belong to;
-  `user_values` holds values typed for selected items (both used from later
-  0.2.0 steps).
+  `user_values` holds values typed for selected items (used from a later
+  0.2.0 step).
 - Files from version 0.1.0 (`schema_version` 1) still load; they are written in
   the new format the next time they are saved. Files from a newer version of
   the tool are refused with a clear message.

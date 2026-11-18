@@ -161,3 +161,29 @@ export function errorMessage(body, fallback) {
   }
   return fallback;
 }
+
+/**
+ * Text for a saved session in the load list.
+ * @param {{name:string,configuration_name?:string,count:number,modified:string}} s Session summary.
+ * @param {(iso:string) => string} [formatDate] Date formatter (injectable for tests).
+ * @returns {string} e.g. "Project A — Rig 7 — 3 items — 18/11/2026, 09:12".
+ */
+export function sessionLabel(s, formatDate = (iso) => new Date(iso).toLocaleString()) {
+  const parts = [s.name];
+  if (s.configuration_name) parts.push(s.configuration_name);
+  parts.push(`${s.count} item${s.count === 1 ? '' : 's'}`, formatDate(s.modified));
+  return parts.join(' — ');
+}
+
+/**
+ * Text for the page header describing the current session.
+ * @param {string} sessionName Name of the loaded/saved session ('' = none).
+ * @param {string} configurationName Its configuration name ('' = none).
+ * @returns {string} Header text, or '' when no session is current.
+ */
+export function currentLabel(sessionName, configurationName) {
+  if (!sessionName) return '';
+  return configurationName
+    ? `Session: ${sessionName} · Configuration: ${configurationName}`
+    : `Session: ${sessionName}`;
+}

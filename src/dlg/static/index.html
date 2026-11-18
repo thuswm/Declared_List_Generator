@@ -12,6 +12,7 @@
   <header class="app-header">
     <h1>Declared List Generator</h1>
     <span id="source" class="muted"></span>
+    <span id="current" class="current" aria-live="polite" hidden></span>
   </header>
 
   <div id="status" class="status" role="status" aria-live="polite" hidden></div>
@@ -23,6 +24,11 @@
         <label for="session-name">Name</label>
         <input id="session-name" type="text" maxlength="200" placeholder="e.g. Project A">
         <button id="save-btn" type="button">Save</button>
+      </div>
+      <div class="row">
+        <label for="config-name">Configuration</label>
+        <input id="config-name" type="text" maxlength="500" class="wide"
+               placeholder="Configuration the items belong to, e.g. Rig 7, build B">
       </div>
       <div class="row">
         <label for="session-list">Saved</label>
