@@ -221,7 +221,7 @@ src/dlg/
   app.py           FastAPI routes + static GUI
   static/          index.html, app.js, logic.js, style.css
 tools/make_examples.py   example database and template
-PLAN.md                  design decisions and progress log
+PLAN.md                  current status and plan (decisions in docs/decisions.md)
 ```
 
 Swapping the item database later means writing another class with a
