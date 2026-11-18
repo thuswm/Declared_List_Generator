@@ -21,7 +21,7 @@ from pydantic import ValidationError
 from dlg.models import SESSION_SCHEMA_VERSION, Session
 
 #: File stems Windows reserves for devices (with any extension); never usable.
-_WINDOWS_RESERVED = frozenset(
+WINDOWS_RESERVED_NAMES = frozenset(
     ["CON", "PRN", "AUX", "NUL"] + [f"{p}{n}" for p in ("COM", "LPT") for n in range(1, 10)]
 )
 
@@ -57,7 +57,7 @@ def safe_filename(name: str) -> str:
     stem = re.sub(r"[^\w .-]", "_", name, flags=re.ASCII).strip(" .")
     if not stem:
         raise SessionError(f"Invalid session name: {name!r}")
-    if stem.split(".")[0].upper() in _WINDOWS_RESERVED:
+    if stem.split(".")[0].upper() in WINDOWS_RESERVED_NAMES:
         stem = f"_{stem}"
     return stem
 

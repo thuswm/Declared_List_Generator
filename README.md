@@ -86,7 +86,7 @@ To open it for editing: `xdg-open ~/.config/dlg/config.toml` (Linux),
 | `items_file`    | `data/items.xlsx` (in the project)         | Excel item database                      |
 | `template_file` | `templates/declared_list_template.docx`    | Word template                            |
 | `sessions_dir`  | `sessions/` (in the project)               | Folder for session files                 |
-| `output_dir`    | `output/` (in the project)                 | Folder for generated Word documents (used from a later step) |
+| `output_dir`    | `output/` (in the project)                 | Folder for generated Word documents      |
 | `id_column`     | `ID`                                       | Header of the item-database column holding the unique item IDs |
 | `host`, `port`  | `127.0.0.1`, `8000`                        | Where the server listens                 |
 
@@ -126,7 +126,12 @@ work from the computer running the tool.
    belong to, e.g. `Rig 7, build B`) and **Save** to store the selection as a
    session. **Load** a saved session later; the list shows each session's
    configuration, and the page header shows the current session and configuration.
-3. **Export Word document** downloads `declared_list.docx`.
+3. Check the **File name** (suggested from the configuration name, else the
+   session name; `.docx` is added) and click **Export Word document**. The
+   file is written to the output folder (created if needed) and the full path
+   is shown. If a file of that name exists you are asked before it is replaced;
+   if it is open in Word, close it and export again. Characters not allowed in
+   Windows file names (`< > : " / \ | ? *`) are refused.
 
 The Excel file is re-read on every page load, so you can edit it and refresh.
 
@@ -182,6 +187,11 @@ section** (with portrait sections before and after, as in the example
 template). The table has a repeating header row and exactly the shown
 (non-`#`) columns of the item database; column widths follow the length of
 their content.
+
+`{{CONFIGURATION_NAME}}` anywhere in the template (body text, tables, headers
+and footers) is replaced by the configuration name entered in the tool, e.g.
+`Configuration: {{CONFIGURATION_NAME}}` as in the example template. Text boxes
+are not searched.
 
 ## Behaviour worth knowing
 

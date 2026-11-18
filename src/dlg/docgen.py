@@ -3,14 +3,16 @@
 Opens a Word template, finds the placeholder paragraph and replaces it with a
 table of the selected items. The table is inserted *in place*, so it inherits
 the page orientation of whichever template section holds the placeholder (the
-template is expected to put it in a landscape section).
+template is expected to put it in a landscape section). Text placeholders such
+as ``{{CONFIGURATION_NAME}}`` are filled in anywhere in the body, in tables and
+in headers/footers.
 """
 
 from __future__ import annotations
 
+import os
 import re
-from collections.abc import Sequence
-from io import BytesIO
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 from docx import Document
@@ -28,12 +30,19 @@ from dlg.models import Item
 #: Text of the template paragraph that is replaced by the table.
 PLACEHOLDER = "{{DECLARED_LIST}}"
 
+#: Replaced by the configuration name wherever it appears in the template.
+CONFIGURATION_PLACEHOLDER = "{{CONFIGURATION_NAME}}"
+
 # XML 1.0 forbids most control characters; Excel data can occasionally contain them.
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 
 class DocgenError(Exception):
     """Raised when the document cannot be generated."""
+
+
+class OutputLockedError(DocgenError):
+    """Raised when the output file cannot be replaced (e.g. it is open in Word)."""
 
 
 #: Limits for a column's relative width (in characters), so one long text
@@ -71,63 +80,60 @@ def generate_declared_list(
     columns: Sequence[str],
     items: Sequence[Item],
     output_path: str | Path,
+    configuration_name: str = "",
 ) -> Path:
     """Create a declared list document and save it to disk.
+
+    The document is written to a temporary file next to the target and then
+    moved into place, so an existing file is never left half-written.
 
     Args:
         template_path: Word template containing the placeholder paragraph.
         columns: Names of the columns to put in the table, in order.
         items: Items to list, in the order they should appear.
-        output_path: Where to write the finished .docx.
+        output_path: Where to write the finished .docx (folders are created).
+        configuration_name: Text for ``{{CONFIGURATION_NAME}}``.
 
     Returns:
         The output path.
 
     Raises:
+        OutputLockedError: If the target exists and cannot be replaced
+            (typically because it is open in Word on Windows).
         DocgenError: If the template is missing/invalid, has no placeholder,
-            or no items were given.
+            no items were given, or the file cannot be written.
     """
-    doc = build_document(template_path, columns, items)
+    doc = build_document(template_path, columns, items, configuration_name)
     out = Path(output_path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    doc.save(out)
+    tmp = out.with_name(f"~{out.stem}.tmp.docx")
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        doc.save(str(tmp))
+        os.replace(tmp, out)
+    except PermissionError as exc:
+        tmp.unlink(missing_ok=True)
+        raise OutputLockedError(
+            f"Cannot write {out.name}: it may be open in Word. Close it and try again."
+        ) from exc
+    except OSError as exc:
+        tmp.unlink(missing_ok=True)
+        raise DocgenError(f"Cannot write {out}: {exc.strerror or exc}") from exc
     return out
-
-
-def render_to_bytes(
-    template_path: str | Path,
-    columns: Sequence[str],
-    items: Sequence[Item],
-) -> bytes:
-    """Create a declared list document in memory (for HTTP downloads).
-
-    Args:
-        template_path: Word template containing the placeholder paragraph.
-        columns: Names of the columns to put in the table, in order.
-        items: Items to list, in order.
-
-    Returns:
-        The .docx file contents.
-
-    Raises:
-        DocgenError: See :func:`generate_declared_list`.
-    """
-    buf = BytesIO()
-    build_document(template_path, columns, items).save(buf)
-    return buf.getvalue()
 
 
 def build_document(
     template_path: str | Path,
     columns: Sequence[str],
     items: Sequence[Item],
+    configuration_name: str = "",
 ) -> DocumentType:
-    """Load the template and replace the placeholder with the items table.
+    """Load the template, fill in text placeholders and insert the items table.
 
     Args:
         template_path: Word template containing the placeholder paragraph.
         columns: Names of the columns to put in the table, in order.
         items: Items to list, in order.
+        configuration_name: Text for ``{{CONFIGURATION_NAME}}``.
 
     Returns:
         The populated document (not yet saved).
@@ -148,6 +154,11 @@ def build_document(
     except Exception as exc:  # python-docx raises several types for bad packages
         raise DocgenError(f"Cannot read template {path.name}: {exc}") from exc
 
+    # Before the table exists, so item text that happens to contain a
+    # placeholder is never substituted.
+    for paragraph in _all_paragraphs(doc):
+        _replace_in_paragraph(paragraph, CONFIGURATION_PLACEHOLDER, _clean(configuration_name))
+
     placeholder = _find_placeholder(doc)
     section = doc.sections[_section_index(doc, placeholder._p)]
     table = _build_table(doc, items, columns, _text_width(section))
@@ -157,6 +168,69 @@ def build_document(
     placeholder._p.addprevious(table._tbl)
     _remove_placeholder(placeholder)
     return doc
+
+
+def _paragraphs_in(container: object) -> Iterator[Paragraph]:
+    """Yield the paragraphs of a body, header, footer or cell, including nested tables.
+
+    Args:
+        container: Any python-docx object with ``paragraphs`` and ``tables``.
+
+    Yields:
+        Each paragraph.
+    """
+    yield from container.paragraphs
+    for table in container.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                yield from _paragraphs_in(cell)
+
+
+def _all_paragraphs(doc: DocumentType) -> Iterator[Paragraph]:
+    """Yield every paragraph of the body and of all headers and footers.
+
+    Headers/footers linked to the previous section are skipped: they have no
+    content of their own, and touching them would create an empty one.
+
+    Args:
+        doc: The document.
+
+    Yields:
+        Each paragraph.
+    """
+    yield from _paragraphs_in(doc)
+    for section in doc.sections:
+        for part in (
+            section.header, section.first_page_header, section.even_page_header,
+            section.footer, section.first_page_footer, section.even_page_footer,
+        ):
+            if not part.is_linked_to_previous:
+                yield from _paragraphs_in(part)
+
+
+def _replace_in_paragraph(paragraph: Paragraph, old: str, new: str) -> None:
+    """Replace text in a paragraph, keeping run formatting where possible.
+
+    Word often splits typed text across several runs. A placeholder inside one
+    run is replaced there (keeping its formatting); one spread over several
+    runs is handled by moving the paragraph's text into its first run.
+
+    Args:
+        paragraph: The paragraph.
+        old: Text to find.
+        new: Replacement text.
+    """
+    runs = paragraph.runs
+    if old not in "".join(r.text for r in runs):
+        return
+    for run in runs:
+        if old in run.text:
+            run.text = run.text.replace(old, new)
+    joined = "".join(r.text for r in runs)
+    if old in joined:
+        runs[0].text = joined.replace(old, new)
+        for run in runs[1:]:
+            run.text = ""
 
 
 def _find_placeholder(doc: DocumentType) -> Paragraph:

@@ -12,15 +12,16 @@ from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
 from dlg.docgen import (
+    CONFIGURATION_PLACEHOLDER,
     MAX_WEIGHT,
     MIN_WEIGHT,
     PLACEHOLDER,
     DocgenError,
+    OutputLockedError,
     _section_index,
     build_document,
     column_weights,
     generate_declared_list,
-    render_to_bytes,
 )
 from dlg.models import Item
 
@@ -182,12 +183,76 @@ def test_errors(tmp_path: Path) -> None:
         build_document(plain, COLUMNS, _items())
 
 
-def test_generate_and_render_to_bytes(tmp_path: Path) -> None:
-    """Saving to disk and to memory both yield a readable document."""
+def test_generate_writes_file_and_creates_folders(tmp_path: Path) -> None:
+    """The document is saved (creating folders) and no temp file remains."""
     out = generate_declared_list(EXAMPLE_TEMPLATE, COLUMNS, _items(2), tmp_path / "sub" / "out.docx")
     assert len(Document(str(out)).tables[0].rows) == 3
-    data = render_to_bytes(EXAMPLE_TEMPLATE, COLUMNS, _items(2))
-    assert data[:2] == b"PK"  # a .docx is a zip file
+    assert [p.name for p in (tmp_path / "sub").iterdir()] == ["out.docx"]
+
+
+def test_locked_output_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A file that cannot be replaced (open in Word on Windows) gives a clear error; temp file cleaned up."""
+    import dlg.docgen as docgen
+
+    def deny(src: object, dst: object) -> None:
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(docgen.os, "replace", deny)
+    with pytest.raises(OutputLockedError, match="open in Word"):
+        generate_declared_list(EXAMPLE_TEMPLATE, COLUMNS, _items(1), tmp_path / "out.docx")
+    assert list(tmp_path.iterdir()) == []
+
+
+def _template_with_config_placeholders(path: Path) -> Path:
+    """A template using {{CONFIGURATION_NAME}} in body, split runs, a table and the header."""
+    doc = Document()
+    doc.add_paragraph(f"Config: {CONFIGURATION_PLACEHOLDER}.")
+    split = doc.add_paragraph()
+    for part in ("For {{CONFIG", "URATION_", "NAME}} only"):
+        split.add_run(part)
+    split.runs[0].bold = True
+    doc.add_table(rows=1, cols=1).rows[0].cells[0].text = f"Cell {CONFIGURATION_PLACEHOLDER}"
+    doc.sections[0].header.paragraphs[0].text = f"Header {CONFIGURATION_PLACEHOLDER}"
+    doc.add_paragraph(PLACEHOLDER)
+    doc.save(path)
+    return path
+
+
+def test_configuration_name_replaced_everywhere(tmp_path: Path) -> None:
+    """Body, split runs, table cells and headers are filled; item text is never substituted."""
+    template = _template_with_config_placeholders(tmp_path / "t.docx")
+    item = _item("X", f"literal {CONFIGURATION_PLACEHOLDER}")
+    doc = build_document(template, COLUMNS, [item], "Rig <7> & B")
+    texts = [p.text for p in doc.paragraphs]
+    assert "Config: Rig <7> & B." in texts
+    assert "For Rig <7> & B only" in texts
+    assert doc.tables[0].rows[0].cells[0].text == "Cell Rig <7> & B"
+    assert doc.sections[0].header.paragraphs[0].text == "Header Rig <7> & B"
+    item_table = doc.tables[1]
+    assert item_table.rows[1].cells[1].text == f"literal {CONFIGURATION_PLACEHOLDER}"
+
+
+def test_configuration_placeholder_in_single_run_keeps_formatting(tmp_path: Path) -> None:
+    """A placeholder inside one run is replaced in that run, keeping its formatting."""
+    doc = Document()
+    p = doc.add_paragraph()
+    p.add_run("Name: ")
+    bold = p.add_run(CONFIGURATION_PLACEHOLDER)
+    bold.bold = True
+    doc.add_paragraph(PLACEHOLDER)
+    doc.save(tmp_path / "t.docx")
+    out = build_document(tmp_path / "t.docx", COLUMNS, _items(1), "Rig")
+    runs = out.paragraphs[0].runs
+    assert [(r.text, bool(r.bold)) for r in runs] == [("Name: ", False), ("Rig", True)]
+
+
+def test_empty_configuration_name_and_linked_headers(tmp_path: Path) -> None:
+    """No name leaves an empty value; linked headers are not given content of their own."""
+    template = _template_with_config_placeholders(tmp_path / "t.docx")
+    doc = build_document(template, COLUMNS, _items(1))
+    assert "Config: ." in [p.text for p in doc.paragraphs]
+    plain = build_document(EXAMPLE_TEMPLATE, COLUMNS, _items(1), "Rig")
+    assert [s.header.is_linked_to_previous for s in plain.sections] == [True, True, True]
 
 
 def test_template_file_not_modified(tmp_path: Path) -> None:

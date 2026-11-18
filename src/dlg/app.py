@@ -6,6 +6,7 @@ the per-user :class:`dlg.config.Config` (see ``dlg/config.py``).
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -14,14 +15,16 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from dlg.config import Config, ConfigError, save_config
-from dlg.docgen import DocgenError, render_to_bytes
+from dlg.docgen import DocgenError, OutputLockedError, generate_declared_list
 from dlg.filebrowser import BrowseError, BrowseNotFoundError, Listing, list_folder
 from dlg.models import Column, Item, ItemTable, Session
-from dlg.sessions import SessionError, SessionNotFoundError, SessionStore
+from dlg.sessions import WINDOWS_RESERVED_NAMES, SessionError, SessionNotFoundError, SessionStore
 from dlg.sources.excel import ExcelItemSource, ItemSourceError
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+#: Characters Windows does not allow in file names (checked on every platform so a
+#: name that works on Linux also works on Windows).
+_BAD_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 #: Client addresses treated as "this computer" for the local-only endpoints.
 LOCAL_CLIENTS = frozenset({"127.0.0.1", "::1", "localhost"})
@@ -131,10 +134,61 @@ class ExportRequest(BaseModel):
         selected_ids: IDs of the items to put in the declared list.
         user_values: Values typed by the user for the user-input columns,
             per item ID and column name.
+        file_name: Name of the Word file in the output folder (``.docx`` optional).
+        configuration_name: Text for ``{{CONFIGURATION_NAME}}`` in the template.
+        overwrite: Replace an existing file of that name (otherwise 409).
     """
 
     selected_ids: list[str]
     user_values: dict[str, dict[str, str]] = Field(default_factory=dict)
+    file_name: str = Field(default="declared_list", max_length=200)
+    configuration_name: str = Field(default="", max_length=500)
+    overwrite: bool = False
+
+
+class ExportResponse(BaseModel):
+    """Result of ``POST /api/export``.
+
+    Attributes:
+        path: Full path of the written file.
+        file_name: Its file name.
+        count: Number of items in the declared list.
+    """
+
+    path: str
+    file_name: str
+    count: int
+
+
+def output_file_name(name: str) -> str:
+    """Validate a user-given output file name and add ``.docx``.
+
+    Invalid names are rejected rather than silently changed, so the user
+    gets exactly the file name they see confirmed.
+
+    Args:
+        name: File name as typed (with or without ``.docx``).
+
+    Returns:
+        The file name ending in ``.docx``.
+
+    Raises:
+        HTTPException: 400 if the name is empty, contains characters not
+            allowed on Windows, or is a reserved Windows device name.
+    """
+    stem = name.strip()
+    if stem.lower().endswith(".docx"):
+        stem = stem[: -len(".docx")]
+    stem = stem.rstrip(" .")  # Windows silently drops trailing dots/spaces
+    if not stem:
+        raise HTTPException(status_code=400, detail="Enter a file name for the Word document.")
+    if _BAD_FILENAME_CHARS.search(stem):
+        raise HTTPException(
+            status_code=400, detail='A file name cannot contain any of these characters: < > : " / \\ | ? *'
+        )
+    if stem.split(".")[0].upper() in WINDOWS_RESERVED_NAMES:
+        raise HTTPException(status_code=400, detail=f"'{stem}' is reserved by Windows; choose another file name.")
+    return f"{stem}.docx"
 
 
 def _checked_path(value: str, label: str) -> Path:
@@ -258,29 +312,35 @@ def create_app(settings: Config | None = None, config_path: Path | None = None) 
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return Response(status_code=204)
 
-    @app.post("/api/export")
-    def export(req: ExportRequest) -> Response:
-        """Generate the declared list .docx for the selected items.
+    @app.post("/api/export", response_model=ExportResponse)
+    def export(req: ExportRequest) -> ExportResponse:
+        """Write the declared list .docx for the selected items to the output folder.
 
         Rows follow database order (not click order) so the output is stable.
+        An existing file is only replaced when ``overwrite`` is set (409 otherwise),
+        so the GUI can ask first.
         """
         if not req.selected_ids:
             raise HTTPException(status_code=400, detail="No items selected.")
+        name = output_file_name(req.file_name)
+        target = cfg.output_dir / name
         table = load_table()
         wanted = set(req.selected_ids)
         unknown = sorted(wanted - {i.id for i in table.items})
         if unknown:
             raise HTTPException(status_code=422, detail=f"Unknown item IDs: {', '.join(unknown)}")
+        if target.exists() and not req.overwrite:
+            raise HTTPException(status_code=409, detail=f"{name} already exists in {cfg.output_dir}.")
+        items = [i for i in table.with_user_values(req.user_values) if i.id in wanted]
         try:
-            items = [i for i in table.with_user_values(req.user_values) if i.id in wanted]
-            data = render_to_bytes(cfg.template_file, table.column_names, items)
+            generate_declared_list(
+                cfg.template_file, table.column_names, items, target, req.configuration_name.strip()
+            )
+        except OutputLockedError as exc:
+            raise HTTPException(status_code=423, detail=str(exc)) from exc
         except DocgenError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
-        return Response(
-            content=data,
-            media_type=DOCX_MEDIA_TYPE,
-            headers={"Content-Disposition": 'attachment; filename="declared_list.docx"'},
-        )
+        return ExportResponse(path=str(target), file_name=name, count=len(items))
 
     def current_settings() -> SettingsResponse:
         """Return the GUI-editable settings."""

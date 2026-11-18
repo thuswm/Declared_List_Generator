@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   chooseFilter, currentLabel, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds,
-  sessionLabel, setMany, setUserValue, withUserValues,
+  sessionLabel, setMany, setUserValue, suggestFileName, withUserValues,
 } from '../../src/dlg/static/logic.js';
 
 const row = (id, name, description, category, supplier = '') => (
@@ -159,4 +159,14 @@ test('setUserValue adds, changes and removes values immutably', () => {
   assert.deepEqual(b, { X: { SN: '1', Lot: 'L' } });
   assert.deepEqual(a, { X: { SN: '1' } });
   assert.deepEqual(setUserValue(setUserValue(b, 'X', 'SN', ''), 'X', 'Lot', ''), {});
+});
+
+test('suggestFileName: configuration first, then session, then default; Windows-safe', () => {
+  assert.equal(suggestFileName('Rig 7, build B', 'Proj'), 'Rig 7, build B');
+  assert.equal(suggestFileName('  ', 'Proj A'), 'Proj A');
+  assert.equal(suggestFileName('', ''), 'declared_list');
+  assert.equal(suggestFileName('a/b:c*d?', ''), 'a_b_c_d_');
+  assert.equal(suggestFileName('Rig 7. ', ''), 'Rig 7');
+  assert.equal(suggestFileName('...', ''), 'declared_list');
+  assert.equal(suggestFileName('x'.repeat(150), '').length, 100);
 });

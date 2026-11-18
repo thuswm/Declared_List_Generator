@@ -6,7 +6,7 @@
  */
 import {
   chooseFilter, currentLabel, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds,
-  sessionLabel, setMany, setUserValue, withUserValues,
+  sessionLabel, setMany, setUserValue, suggestFileName, withUserValues,
 } from './logic.js';
 
 /** Label shown for empty cells in a filter list. */
@@ -25,6 +25,7 @@ const state = {
   configurationName: '', // configuration name of that session, as last loaded or saved
   userValues: {}, // values typed in user-input columns: {itemId: {column: value}}
   savedDatabase: '', // item database path + ID column as last saved (detects a change)
+  fileNameEdited: false, // the user typed a file name; stop suggesting one
   dirty: false, // selection changed since last load/save
 };
 
@@ -43,7 +44,7 @@ const el = {
   browseCancel: $('browse-cancel'), browseSelect: $('browse-select'),
   clear: $('clear-btn'), count: $('count'), exportBtn: $('export-btn'),
   selectVisible: $('select-visible'), sessionName: $('session-name'), configName: $('config-name'),
-  current: $('current'),
+  current: $('current'), fileName: $('file-name'),
   sessionList: $('session-list'), save: $('save-btn'), load: $('load-btn'), del: $('delete-btn'),
 };
 
@@ -81,7 +82,9 @@ async function api(path, opts = {}) {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new Error(errorMessage(body, `Request failed (${res.status})`));
+    const err = new Error(errorMessage(body, `Request failed (${res.status})`));
+    err.status = res.status; // lets callers react to e.g. 409 (file exists)
+    throw err;
   }
   if (raw) return res;
   return res.status === 204 ? null : res.json();
@@ -452,6 +455,8 @@ async function loadSession() {
     state.dirty = false;
     el.sessionName.value = session.name;
     el.configName.value = session.configuration_name;
+    state.fileNameEdited = false; // a loaded session brings its own name
+    suggestName();
     renderCurrent();
     renderRows();
     if (unknown.length) {
@@ -483,23 +488,37 @@ async function deleteSession() {
   }
 }
 
-/** Generate the Word document for the selection and download it. */
+/** Propose a file name from the configuration/session name unless the user typed one. */
+function suggestName() {
+  if (!state.fileNameEdited) el.fileName.value = suggestFileName(el.configName.value, el.sessionName.value);
+}
+
+/**
+ * Write the Word document for the selection to the output folder.
+ * Asks before replacing an existing file of the same name.
+ */
 async function exportDocument() {
   el.exportBtn.disabled = true;
+  const body = {
+    selected_ids: [...state.selected],
+    user_values: state.userValues,
+    file_name: el.fileName.value.trim(),
+    configuration_name: el.configName.value.trim(),
+    overwrite: false,
+  };
   try {
-    const res = await sendJson('/api/export', 'POST', {
-      selected_ids: [...state.selected], user_values: state.userValues,
-    }, true);
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = make('a');
-    a.href = url;
-    a.download = 'declared_list.docx';
-    document.body.append(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
-    showStatus(`Exported ${state.selected.size} items.`);
+    let result;
+    try {
+      result = await sendJson('/api/export', 'POST', body);
+    } catch (err) {
+      if (err.status !== 409) throw err;
+      if (!window.confirm(`${err.message}\n\nReplace it?`)) {
+        showStatus('Export cancelled; the existing file was kept.', 'warn');
+        return;
+      }
+      result = await sendJson('/api/export', 'POST', { ...body, overwrite: true });
+    }
+    showStatus(`Saved ${result.count} item${result.count === 1 ? '' : 's'} to ${result.path}`);
   } catch (err) {
     showStatus(err.message, 'error');
   } finally {
@@ -746,7 +765,14 @@ function bindEvents() {
   el.exportBtn.addEventListener('click', exportDocument);
   el.sessionName.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveSession(); });
   el.configName.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveSession(); });
-  el.configName.addEventListener('input', () => { state.dirty = true; });
+  el.configName.addEventListener('input', () => { state.dirty = true; suggestName(); });
+  el.sessionName.addEventListener('input', suggestName);
+  el.fileName.addEventListener('input', () => {
+    // An emptied field goes back to following the configuration/session name.
+    state.fileNameEdited = el.fileName.value.trim() !== '';
+    if (!state.fileNameEdited) suggestName();
+  });
+  el.fileName.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !el.exportBtn.disabled) exportDocument(); });
   window.addEventListener('beforeunload', (e) => { if (state.dirty) e.preventDefault(); });
 }
 
@@ -774,6 +800,7 @@ async function loadItems() {
 /** Load items and sessions, then show the page. */
 async function init() {
   bindEvents();
+  suggestName();
   // Settings first and independently: if the database path is wrong, they are how to fix it.
   await loadSettings();
   try {

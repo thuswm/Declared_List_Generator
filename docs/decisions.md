@@ -3,6 +3,15 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-18 – Output file name & location (0.2.0 step 9)
+- `POST /api/export` now **writes** `<output_dir>/<name>.docx` (folder created) and returns `{path, file_name, count}`; the browser download, `render_to_bytes` and `DOCX_MEDIA_TYPE` are gone. Request adds `file_name`, `configuration_name`, `overwrite`.
+- Existing file without `overwrite` → 409; the GUI confirms and resends with `overwrite: true` (`api()` errors now carry `status`).
+- File names are **validated, not silently changed** (user sees exactly what is written): Windows-forbidden characters `< > : " / \ | ? *` and control chars → 400 on every platform (a name that works on Linux must work on Windows); reserved device names (`CON`, `NUL`, …; shared `WINDOWS_RESERVED_NAMES` from `sessions.py`) → 400; trailing dots/spaces stripped (Windows drops them anyway); `.docx` added if missing (case-insensitive).
+- Atomic write: save to `~<stem>.tmp.docx` next to the target, then `os.replace`. `PermissionError` (target open in Word on Windows) → `OutputLockedError` → 423 "close it in Word"; temp file removed.
+- `{{CONFIGURATION_NAME}}` is replaced in body paragraphs, (nested) table cells and all headers/footers that are not linked to the previous section (touching a linked one would create an empty header). Replaced **before** the item table is inserted so item data containing the placeholder text is never substituted. Placeholder inside one run keeps that run's formatting; one split across runs is collapsed into the first run. Text boxes are not searched.
+- GUI: File name field next to Export, suggested from configuration → session → `declared_list` (Windows-forbidden characters become `_` in the suggestion). Once the user types a name it sticks; emptying the field resumes suggestions; loading a session resets to the suggestion. Enter in the field exports.
+- Test gotcha: `Config()` defaults `output_dir` to the project's `output/`, so every exporting test must set `output_dir=tmp_path / ...`.
+
 ## 2026-11-18 – Paths & browsing (0.2.0 step 8)
 - Browsers cannot reveal real file paths, so the local server lists folders: `GET /api/fs?path=&files=` (`dlg/filebrowser.py`, stdlib only). Empty path = home; a file path lists its folder (dialog opens at the current file). Roots: Home + drives (`os.listdrives()` on 3.12+, else drive-letter probe) on Windows, Home + `/` elsewhere. Hidden: dot-files, Office lock files `~$*.xlsx`, Windows hidden attribute. Sorting case-insensitive. 404 missing / 403 unreadable.
 - `GET`/`PUT /api/settings`: `items_file`, `id_column`, `output_dir`. Everything is validated before anything changes; on a failed config write the in-memory values are rolled back. Saved with `save_config` (rewrites the file; user comments are lost — acceptable, file is tool-generated).

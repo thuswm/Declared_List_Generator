@@ -224,3 +224,18 @@ export function setUserValue(userValues, id, column, value) {
   else delete next[id];
   return next;
 }
+
+/** Characters Windows does not allow in file names (the server rejects them too). */
+const BAD_FILENAME_CHARS = /[<>:"/\\|?*\u0000-\u001f]/g;
+
+/**
+ * Suggest an output file name (without .docx) from the configuration or session name.
+ * @param {string} configurationName Configuration name ('' if none).
+ * @param {string} sessionName Session name ('' if none).
+ * @returns {string} A file name that is valid on Windows and Linux.
+ */
+export function suggestFileName(configurationName, sessionName) {
+  const base = (configurationName.trim() || sessionName.trim() || 'declared_list');
+  const cleaned = base.replace(BAD_FILENAME_CHARS, '_').slice(0, 100).replace(/[ .]+$/, '');
+  return cleaned || 'declared_list';
+}

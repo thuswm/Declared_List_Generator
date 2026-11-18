@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from io import BytesIO
 from pathlib import Path
 
 import pytest
 from docx import Document
 from fastapi.testclient import TestClient
 
-from dlg.app import DOCX_MEDIA_TYPE, create_app
+from dlg.app import create_app
 from dlg.config import Config
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -17,13 +16,19 @@ ROOT = Path(__file__).resolve().parent.parent
 
 @pytest.fixture
 def client(tmp_path: Path) -> TestClient:
-    """A client using the example DB/template and an empty temp sessions folder."""
+    """A client using the example DB/template and temp sessions/output folders."""
     settings = Config(
         items_file=ROOT / "data" / "items.xlsx",
         template_file=ROOT / "templates" / "declared_list_template.docx",
         sessions_dir=tmp_path / "sessions",
+        output_dir=tmp_path / "out",  # never the project's real output folder
     )
     return TestClient(create_app(settings))
+
+
+def _rows(path: str | Path) -> list[list[str]]:
+    """Return the cell texts of the first table of a .docx file."""
+    return [[c.text for c in row.cells] for row in Document(str(path)).tables[0].rows]
 
 
 def test_get_items(client: TestClient) -> None:
@@ -87,17 +92,49 @@ def test_corrupt_session_file_reports_422(client: TestClient, tmp_path: Path) ->
     assert client.get("/api/sessions/broken").status_code == 422
 
 
-def test_export_returns_docx_in_database_order(client: TestClient) -> None:
-    """The export is a .docx whose rows follow database order."""
-    r = client.post("/api/export", json={"selected_ids": ["DL-005", "DL-002", "DL-009"]})
+def test_export_writes_docx_to_output_folder_in_database_order(client: TestClient, tmp_path: Path) -> None:
+    """The export is written to the (created) output folder; rows follow database order."""
+    r = client.post("/api/export", json={"selected_ids": ["DL-005", "DL-002", "DL-009"], "file_name": "Rig 7"})
+    assert r.status_code == 200, r.text
+    target = tmp_path / "out" / "Rig 7.docx"
+    assert r.json() == {"path": str(target), "file_name": "Rig 7.docx", "count": 3}
+    rows = _rows(target)
+    assert rows[0] == ["ID", "Name", "Description", "Category", "Supplier", "Serial number"]
+    assert [row[0] for row in rows[1:]] == ["DL-002", "DL-005", "DL-009"]
+    assert not list((tmp_path / "out").glob("~*"))  # no temp file left behind
+
+
+def test_export_asks_before_overwriting(client: TestClient, tmp_path: Path) -> None:
+    """An existing file gives 409 unless overwrite is set; the name is matched with or without .docx."""
+    body = {"selected_ids": ["DL-001"], "file_name": "list.docx"}
+    assert client.post("/api/export", json=body).status_code == 200
+    r = client.post("/api/export", json={**body, "file_name": "list", "selected_ids": ["DL-002"]})
+    assert r.status_code == 409 and "already exists" in r.json()["detail"]
+    assert [row[0] for row in _rows(tmp_path / "out" / "list.docx")[1:]] == ["DL-001"]  # untouched
+    r = client.post("/api/export", json={**body, "selected_ids": ["DL-002"], "overwrite": True})
     assert r.status_code == 200
-    assert r.headers["content-type"] == DOCX_MEDIA_TYPE
-    assert "declared_list.docx" in r.headers["content-disposition"]
-    table = Document(BytesIO(r.content)).tables[0]
-    assert [c.text for c in table.rows[0].cells] == [
-        "ID", "Name", "Description", "Category", "Supplier", "Serial number",
-    ]
-    assert [row.cells[0].text for row in table.rows[1:]] == ["DL-002", "DL-005", "DL-009"]
+    assert [row[0] for row in _rows(tmp_path / "out" / "list.docx")[1:]] == ["DL-002"]
+
+
+@pytest.mark.parametrize("name, fragment", [
+    ("", "Enter a file name"), ("  .docx", "Enter a file name"), ("a/b", "cannot contain"),
+    ("a\\b", "cannot contain"), ("what?", "cannot contain"), ("CON", "reserved"), ("nul.docx", "reserved"),
+])
+def test_export_rejects_bad_file_names(client: TestClient, name: str, fragment: str) -> None:
+    """Names that would fail on Windows are rejected with a clear message."""
+    r = client.post("/api/export", json={"selected_ids": ["DL-001"], "file_name": name})
+    assert r.status_code == 400 and fragment in r.json()["detail"]
+
+
+def test_export_fills_configuration_name(client: TestClient, tmp_path: Path) -> None:
+    """``{{CONFIGURATION_NAME}}`` in the template is replaced; trailing dots are dropped from the name."""
+    r = client.post("/api/export", json={
+        "selected_ids": ["DL-001"], "file_name": "cfg. ", "configuration_name": " Rig 7, build B ",
+    })
+    assert r.json()["file_name"] == "cfg.docx"
+    texts = [p.text for p in Document(str(tmp_path / "out" / "cfg.docx")).paragraphs]
+    assert "Configuration: Rig 7, build B" in texts
+    assert not any("{{" in t for t in texts)
 
 
 def test_export_errors(client: TestClient) -> None:
@@ -123,6 +160,7 @@ def test_missing_database_and_template(tmp_path: Path) -> None:
         items_file=ROOT / "data" / "items.xlsx",
         template_file=tmp_path / "missing.docx",
         sessions_dir=tmp_path / "s",
+        output_dir=tmp_path / "out",
     )
     r = TestClient(create_app(ok)).post("/api/export", json={"selected_ids": ["DL-001"]})
     assert r.status_code == 500 and "Template not found" in r.json()["detail"]
@@ -140,14 +178,14 @@ def test_configured_id_column(tmp_path: Path) -> None:
         items_file=tmp_path / "parts.xlsx",
         template_file=ROOT / "templates" / "declared_list_template.docx",
         sessions_dir=tmp_path / "s",
+        output_dir=tmp_path / "out",
         id_column="Part No",
     )
     c = TestClient(create_app(settings))
     body = c.get("/api/items").json()
     assert [i["id"] for i in body["items"]] == ["P1", "P2"]
     r = c.post("/api/export", json={"selected_ids": ["P2"]})
-    rows = [[cell.text for cell in row.cells] for row in Document(BytesIO(r.content)).tables[0].rows]
-    assert rows == [["Part No", "Title"], ["P2", "Gadget"]]
+    assert _rows(r.json()["path"]) == [["Part No", "Title"], ["P2", "Gadget"]]
 
     wrong = Config(items_file=tmp_path / "parts.xlsx", sessions_dir=tmp_path / "s")  # default 'ID'
     r = TestClient(create_app(wrong)).get("/api/items")
@@ -183,7 +221,7 @@ def test_export_includes_typed_values(client: TestClient) -> None:
         "user_values": {"DL-001": {"Serial number": "SN-0001", "Name": "ignored"}},
     })
     assert r.status_code == 200
-    rows = [[c.text for c in row.cells] for row in Document(BytesIO(r.content)).tables[0].rows]
+    rows = _rows(r.json()["path"])
     assert rows[1][1] == "Hydraulic Pump"  # non-input column not overridden
     assert [row[5] for row in rows[1:]] == ["SN-0001", ""]
 
