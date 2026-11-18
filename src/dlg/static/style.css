@@ -96,3 +96,12 @@ button.accent { background: var(--accent); color: var(--accent-text); border-col
 .filter-all { padding-left: .5rem; }
 .filter-blank { font-style: italic; color: var(--muted); }
 .filter-actions { display: flex; gap: .4rem; justify-content: flex-end; }
+
+/* User-input columns: editable for selected rows, read-only (and plain) otherwise. */
+.input-mark { color: var(--accent); }
+td.input-cell { padding: .2rem .4rem; }
+.cell-input {
+  font: inherit; color: inherit; width: 100%; min-width: 8rem;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: .2rem .4rem;
+}
+.cell-input:read-only { background: transparent; border-color: transparent; cursor: pointer; }

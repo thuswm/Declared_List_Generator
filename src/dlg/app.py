@@ -78,9 +78,12 @@ class ExportRequest(BaseModel):
 
     Attributes:
         selected_ids: IDs of the items to put in the declared list.
+        user_values: Values typed by the user for the user-input columns,
+            per item ID and column name.
     """
 
     selected_ids: list[str]
+    user_values: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
 def create_app(settings: Config | None = None) -> FastAPI:
@@ -193,9 +196,8 @@ def create_app(settings: Config | None = None) -> FastAPI:
         if unknown:
             raise HTTPException(status_code=422, detail=f"Unknown item IDs: {', '.join(unknown)}")
         try:
-            data = render_to_bytes(
-                cfg.template_file, table.column_names, [i for i in table.items if i.id in wanted]
-            )
+            items = [i for i in table.with_user_values(req.user_values) if i.id in wanted]
+            data = render_to_bytes(cfg.template_file, table.column_names, items)
         except DocgenError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return Response(

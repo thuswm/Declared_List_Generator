@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 
-from dlg.models import Session
+from dlg.models import Column, Item, ItemTable, Session
 from dlg.sources.excel import ExcelItemSource, ItemSourceError, cell_text
 
 
@@ -127,10 +127,50 @@ def test_session_defaults() -> None:
 
 
 def test_example_database_loads() -> None:
-    """The example database loads; its '#Internal note' column is omitted."""
+    """The example database loads; '#Internal note' is omitted, 'Serial number*' is an input column."""
     path = Path(__file__).resolve().parent.parent / "data" / "items.xlsx"
     table = ExcelItemSource(path).load()
-    assert table.column_names == ["ID", "Name", "Description", "Category", "Supplier"]
+    assert table.column_names == ["ID", "Name", "Description", "Category", "Supplier", "Serial number"]
+    assert [c.name for c in table.columns if c.user_input] == ["Serial number"]
     assert len(table.items) == 12
     assert len({i.id for i in table.items}) == 12
     assert table.items[0].values["Supplier"] == "Acme Fluid"
+
+
+def test_input_marker(tmp_path: Path) -> None:
+    """A trailing '*' marks a user-input column: name without '*', sheet cells ignored."""
+    p = _write(tmp_path / "a.xlsx", [
+        ["ID", "Serial number*", "Lot *", "Name", "*", "#Note*"],
+        ["A1", "from sheet", "L", "Pump", "x", "y"],
+    ])
+    table = ExcelItemSource(p).load()
+    assert [(c.name, c.user_input) for c in table.columns] == [
+        ("ID", False), ("Serial number", True), ("Lot", True), ("Name", False),
+    ]
+    assert table.items[0].values == {"ID": "A1", "Serial number": "", "Lot": "", "Name": "Pump"}
+
+
+def test_input_marker_name_collision_and_id(tmp_path: Path) -> None:
+    """'X' and 'X*' collide; the ID column cannot be a user-input column."""
+    p = _write(tmp_path / "a.xlsx", [["ID", "Serial", "Serial*"], ["a", "1", ""]])
+    with pytest.raises(ItemSourceError, match="more than once"):
+        ExcelItemSource(p).load()
+    p = _write(tmp_path / "b.xlsx", [["ID*", "Name"], ["a", "x"]])
+    with pytest.raises(ItemSourceError, match="cannot be a user-input column"):
+        ExcelItemSource(p).load()
+
+
+def test_with_user_values_fills_only_input_columns() -> None:
+    """Typed values fill input columns; values for other columns or unknown items are ignored."""
+    table = ItemTable(
+        id_column="ID",
+        columns=[Column(name="ID"), Column(name="Name"), Column(name="SN", user_input=True)],
+        items=[Item(id="1", values={"ID": "1", "Name": "A", "SN": ""}),
+               Item(id="2", values={"ID": "2", "Name": "B", "SN": ""})],
+    )
+    merged = table.with_user_values({"1": {"SN": "S-1", "Name": "hacked"}, "zz": {"SN": "x"}})
+    assert [i.values for i in merged] == [
+        {"ID": "1", "Name": "A", "SN": "S-1"},
+        {"ID": "2", "Name": "B", "SN": ""},
+    ]
+    assert table.items[0].values["SN"] == ""  # original untouched

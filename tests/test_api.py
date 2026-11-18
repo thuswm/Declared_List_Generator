@@ -31,7 +31,10 @@ def test_get_items(client: TestClient) -> None:
     body = client.get("/api/items").json()
     assert body["source"] == "items.xlsx"
     assert body["id_column"] == "ID"
-    assert [c["name"] for c in body["columns"]] == ["ID", "Name", "Description", "Category", "Supplier"]
+    assert [c["name"] for c in body["columns"]] == [
+        "ID", "Name", "Description", "Category", "Supplier", "Serial number",
+    ]
+    assert [c["name"] for c in body["columns"] if c["user_input"]] == ["Serial number"]
     assert len(body["items"]) == 12
     first = body["items"][0]
     assert first["id"] == "DL-001"
@@ -91,7 +94,9 @@ def test_export_returns_docx_in_database_order(client: TestClient) -> None:
     assert r.headers["content-type"] == DOCX_MEDIA_TYPE
     assert "declared_list.docx" in r.headers["content-disposition"]
     table = Document(BytesIO(r.content)).tables[0]
-    assert [c.text for c in table.rows[0].cells] == ["ID", "Name", "Description", "Category", "Supplier"]
+    assert [c.text for c in table.rows[0].cells] == [
+        "ID", "Name", "Description", "Category", "Supplier", "Serial number",
+    ]
     assert [row.cells[0].text for row in table.rows[1:]] == ["DL-002", "DL-005", "DL-009"]
 
 
@@ -169,3 +174,15 @@ def test_colliding_session_names_via_api(client: TestClient) -> None:
     assert client.get("/api/sessions/a%2Fb").json()["selected_ids"] == ["DL-001"]
     assert client.get("/api/sessions/a_b").json()["selected_ids"] == ["DL-002"]
     assert len(client.get("/api/sessions").json()) == 2
+
+
+def test_export_includes_typed_values(client: TestClient) -> None:
+    """Typed values appear in the input column of the Word table; others stay empty."""
+    r = client.post("/api/export", json={
+        "selected_ids": ["DL-001", "DL-002"],
+        "user_values": {"DL-001": {"Serial number": "SN-0001", "Name": "ignored"}},
+    })
+    assert r.status_code == 200
+    rows = [[c.text for c in row.cells] for row in Document(BytesIO(r.content)).tables[0].rows]
+    assert rows[1][1] == "Hydraulic Pump"  # non-input column not overridden
+    assert [row[5] for row in rows[1:]] == ["SN-0001", ""]

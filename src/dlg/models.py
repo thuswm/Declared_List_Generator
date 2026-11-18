@@ -28,10 +28,13 @@ class Column(BaseModel):
     """A column of the item database that the tool shows and exports.
 
     Attributes:
-        name: Header text from the database.
+        name: Header text from the database (markers removed).
+        user_input: True if the user types this column's values per item in the
+            tool (header marked with a trailing ``*`` in the database).
     """
 
     name: str
+    user_input: bool = False
 
 
 class Item(BaseModel):
@@ -41,6 +44,7 @@ class Item(BaseModel):
         id: Unique identifier of the item (value of the configured ID column).
         values: Cell text per column name, for every shown column, in column
             order (empty string for empty cells). Includes the ID column.
+            User-input columns are empty here; see ``ItemTable.with_user_values``.
     """
 
     id: str
@@ -64,6 +68,28 @@ class ItemTable(BaseModel):
     def column_names(self) -> list[str]:
         """Names of the shown columns, in order."""
         return [c.name for c in self.columns]
+
+    def with_user_values(self, user_values: dict[str, dict[str, str]]) -> list[Item]:
+        """Return the items with the user's values filled into the input columns.
+
+        Values for columns that are not input columns are ignored, so a session
+        can never overwrite database data.
+
+        Args:
+            user_values: Typed values per item ID and column name.
+
+        Returns:
+            New Item objects (the table is not modified), in database order.
+        """
+        inputs = [c.name for c in self.columns if c.user_input]
+        if not inputs:
+            return list(self.items)
+        merged = []
+        for item in self.items:
+            typed = user_values.get(item.id, {})
+            values = {**item.values, **{c: typed.get(c, "") for c in inputs}}
+            merged.append(Item(id=item.id, values=values))
+        return merged
 
 
 class Session(BaseModel):

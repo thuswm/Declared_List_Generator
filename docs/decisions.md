@@ -3,6 +3,13 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-18 – User-input columns (0.2.0 step 7)
+- Header ending in `*` (trailing whitespace before it allowed, `Lot *` → `Lot`) marks an input column: `Column.user_input = True`. The sheet's cells in that column are **ignored** (values come only from the user), so `Item.values` holds `""` there. A header of only `*` is skipped; `X` + `X*` is a duplicate-header error; the ID column may not be an input column. `#X*` is simply omitted.
+- Merging happens in one place per side: `ItemTable.with_user_values()` (server, export) and `withUserValues()` (GUI: table, search, filter lists). Both only fill input columns, so a session/request can never override database data.
+- Export request carries `user_values`; the Word table shows them at the column's sheet position like any other column.
+- GUI: input cells are `readOnly` (not `disabled`) for unselected rows so a click still reaches the cell: clicking one selects the row and focuses the input. Text-input `change` events are ignored by the selection handler (only checkboxes toggle). Typed values stay in memory when a row is deselected (reappear if reselected) but are dropped on save (selected items only).
+- Example database has a `Serial number*` column.
+
 ## 2026-11-18 – Configuration name in the GUI (0.2.0 step 6)
 - "Configuration" text field (max 500) under the session name; saved with the session (trimmed by the API), filled on load; editing it marks the session as changed. Enter saves.
 - Saved list entry: `Name — Configuration — n item(s) — date` (configuration omitted when empty); full text also as tooltip. Header shows `Session: … · Configuration: …` after load/save, hidden after deleting the current session. Label builders `sessionLabel`/`currentLabel` live in `logic.js` (Node-tested).

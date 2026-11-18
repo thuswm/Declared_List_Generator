@@ -187,3 +187,40 @@ export function currentLabel(sessionName, configurationName) {
     ? `Session: ${sessionName} · Configuration: ${configurationName}`
     : `Session: ${sessionName}`;
 }
+
+/**
+ * Fill the user's typed values into the user-input columns, so search,
+ * filters and the table all see them. Inputs are not modified.
+ * @param {Array} items All items (input columns hold '').
+ * @param {Array<{name:string,user_input?:boolean}>} columns Shown columns.
+ * @param {Object<string,Object<string,string>>} userValues Typed values per item ID and column.
+ * @returns {Array} Items with merged values (the same objects if there are no input columns).
+ */
+export function withUserValues(items, columns, userValues) {
+  const inputs = columns.filter((c) => c.user_input).map((c) => c.name);
+  if (inputs.length === 0) return items;
+  return items.map((item) => {
+    const typed = userValues[item.id] || {};
+    const values = { ...item.values };
+    for (const c of inputs) values[c] = typed[c] ?? '';
+    return { ...item, values };
+  });
+}
+
+/**
+ * Return new user values with one value changed (empty values are removed).
+ * @param {Object<string,Object<string,string>>} userValues Current values (not modified).
+ * @param {string} id Item ID.
+ * @param {string} column Column name.
+ * @param {string} value Typed value.
+ * @returns {Object<string,Object<string,string>>} Updated values.
+ */
+export function setUserValue(userValues, id, column, value) {
+  const row = { ...(userValues[id] || {}) };
+  if (value === '') delete row[column];
+  else row[column] = value;
+  const next = { ...userValues };
+  if (Object.keys(row).length) next[id] = row;
+  else delete next[id];
+  return next;
+}

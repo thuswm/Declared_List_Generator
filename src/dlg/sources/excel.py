@@ -5,6 +5,9 @@ Header conventions (first row of the first sheet):
 * Every column with a non-empty header is shown and exported, in sheet order.
 * A header starting with ``#`` (e.g. ``#Internal note``) marks a column the
   tool ignores completely.
+* A header ending with ``*`` (e.g. ``Serial number*``) marks a user-input
+  column: the user types its value per item in the tool. The ``*`` is not part
+  of the column name, and the sheet's cells in that column are ignored.
 * One column, named by the ``id_column`` setting, holds unique item IDs.
 """
 
@@ -23,6 +26,9 @@ DEFAULT_ID_COLUMN = "ID"
 
 #: Header prefix marking a column that the tool ignores.
 OMIT_MARKER = "#"
+
+#: Header suffix marking a column whose values the user types in the tool.
+INPUT_MARKER = "*"
 
 
 class ItemSourceError(Exception):
@@ -95,49 +101,62 @@ class ExcelItemSource:
             header = next(rows, None)
             if header is None:
                 raise ItemSourceError(f"{self.name} is empty (no header row).")
-            positions = self._shown_columns(header)
-            items = self._parse_rows(rows, positions)
+            columns, positions = self._shown_columns(header)
+            items = self._parse_rows(rows, columns, positions)
         finally:
             wb.close()
-        return ItemTable(
-            id_column=self.id_column,
-            columns=[Column(name=n) for n in positions],
-            items=items,
-        )
+        return ItemTable(id_column=self.id_column, columns=columns, items=items)
 
-    def _shown_columns(self, header: tuple) -> dict[str, int]:
-        """Work out which columns are shown and where they are.
+    def _shown_columns(self, header: tuple) -> tuple[list[Column], dict[str, int]]:
+        """Work out which columns are shown, which are user input, and where they are.
 
         Args:
             header: The first row of the sheet.
 
         Returns:
-            Column name to zero-based sheet index, in sheet order.
+            The shown columns in sheet order, and column name to zero-based
+            sheet index.
 
         Raises:
-            ItemSourceError: If a header is duplicated or the ID column is missing.
+            ItemSourceError: If a header is duplicated (after removing the
+                ``*``), the ID column is missing, or the ID column is marked
+                as user input.
         """
+        columns: list[Column] = []
         positions: dict[str, int] = {}
         for i, raw in enumerate(header):
             name = cell_text(raw)
             if not name or name.startswith(OMIT_MARKER):
                 continue
+            user_input = name.endswith(INPUT_MARKER)
+            if user_input:
+                name = name.rstrip(INPUT_MARKER).rstrip()
+                if not name:
+                    continue  # a header of only "*" has no usable name
             if name in positions:
                 raise ItemSourceError(f"Column '{name}' appears more than once in {self.name}.")
             positions[name] = i
+            columns.append(Column(name=name, user_input=user_input))
+        if any(c.user_input and c.name == self.id_column for c in columns):
+            raise ItemSourceError(
+                f"ID column '{self.id_column}' in {self.name} cannot be a user-input column (remove the '*')."
+            )
         if self.id_column not in positions:
             shown = ", ".join(positions) or "(none)"
             raise ItemSourceError(
                 f"ID column '{self.id_column}' not found in {self.name}. "
                 f"Set 'id_column' in your configuration file to one of: {shown}."
             )
-        return positions
+        return columns, positions
 
-    def _parse_rows(self, rows: Iterator[tuple], positions: dict[str, int]) -> list[Item]:
+    def _parse_rows(
+        self, rows: Iterator[tuple], columns: list[Column], positions: dict[str, int]
+    ) -> list[Item]:
         """Convert sheet rows to Items.
 
         Args:
             rows: Iterator of data rows (header already consumed).
+            columns: Shown columns (user-input columns get empty values).
             positions: Shown column name to sheet index.
 
         Returns:
@@ -148,9 +167,13 @@ class ExcelItemSource:
         """
         items: list[Item] = []
         seen: set[str] = set()
+        inputs = {c.name for c in columns if c.user_input}
         for row in rows:
             # Rows can be shorter than the header when trailing cells are empty.
-            values = {n: cell_text(row[i]) if i < len(row) else "" for n, i in positions.items()}
+            values = {
+                n: "" if n in inputs or i >= len(row) else cell_text(row[i])
+                for n, i in positions.items()
+            }
             item_id = values[self.id_column]
             if not item_id:
                 continue  # blank/spacer row

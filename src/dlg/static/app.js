@@ -6,14 +6,14 @@
  */
 import {
   chooseFilter, currentLabel, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds,
-  sessionLabel, setMany,
+  sessionLabel, setMany, setUserValue, withUserValues,
 } from './logic.js';
 
 /** Label shown for empty cells in a filter list. */
 const BLANK_LABEL = '(Blanks)';
 
 const state = {
-  columns: [], // shown column names, in database order
+  columns: [], // shown columns {name, user_input}, in database order
   items: [],
   selected: new Set(),
   // columns: column name -> Set of allowed values (only filtered columns are present).
@@ -23,8 +23,7 @@ const state = {
   sessions: [],
   sessionName: '', // name of the session last loaded or saved
   configurationName: '', // configuration name of that session, as last loaded or saved
-  // Kept from the loaded session and sent back on save (edited in the GUI from 0.2.0 step 7).
-  userValues: {},
+  userValues: {}, // values typed in user-input columns: {itemId: {column: value}}
   dirty: false, // selection changed since last load/save
 };
 
@@ -111,8 +110,11 @@ function make(tag, text = '', cls = '') {
   return node;
 }
 
-/** Items passing the current filter. */
-const visible = () => filterItems(state.items, state.filter, state.selected);
+/** All items with the typed values filled into the user-input columns. */
+const mergedItems = () => withUserValues(state.items, state.columns, state.userValues);
+
+/** Items passing the current filter (typed values included). */
+const visible = () => filterItems(mergedItems(), state.filter, state.selected);
 
 /** Rebuild the table body for the current filter. */
 function renderRows() {
@@ -130,12 +132,31 @@ function renderRows() {
     cb.setAttribute('aria-label', `Select ${item.id}`);
     td.append(cb);
 
-    tr.append(td, ...state.columns.map((c) => make('td', item.values[c] ?? '')));
+    tr.append(td, ...state.columns.map((c) => (c.user_input ? inputCell(item, c.name) : make('td', item.values[c.name] ?? ''))));
     frag.append(tr);
   }
   el.rows.replaceChildren(frag);
   el.empty.hidden = shown.length > 0;
   updateSummary();
+}
+
+/**
+ * Build an editable cell for a user-input column. It is read-only while the
+ * row is not selected, because only values of selected items are kept.
+ * @param {{id:string,values:Object<string,string>}} item The (merged) item.
+ * @param {string} column Column name.
+ * @returns {HTMLTableCellElement} The cell.
+ */
+function inputCell(item, column) {
+  const td = make('td', '', 'input-cell');
+  const input = make('input', '', 'cell-input');
+  input.type = 'text';
+  input.value = item.values[column] ?? '';
+  input.dataset.column = column;
+  input.readOnly = !state.selected.has(item.id);
+  input.setAttribute('aria-label', `${column} for ${item.id}`);
+  td.append(input);
+  return td;
 }
 
 /** Refresh the count, header checkbox and button states (no row rebuild). */
@@ -168,16 +189,21 @@ function changeSelection(next) {
 /** Build the column headers (after the select-all checkbox), each with a filter button. */
 function renderHeader() {
   const check = el.headRow.firstElementChild;
-  el.headRow.replaceChildren(check, ...state.columns.map((c) => {
+  el.headRow.replaceChildren(check, ...state.columns.map(({ name, user_input: userInput }) => {
     const th = make('th');
     th.scope = 'col';
     const inner = make('div', '', 'th-inner');
     const btn = make('button', '▾', 'filter-btn');
     btn.type = 'button';
-    btn.dataset.column = c;
+    btn.dataset.column = name;
     btn.setAttribute('aria-haspopup', 'dialog');
     btn.setAttribute('aria-expanded', 'false');
-    inner.append(make('span', c), btn);
+    const label = make('span', name);
+    if (userInput) {
+      label.append(make('span', ' ✎', 'input-mark'));
+      th.title = 'Typed by you for each selected item';
+    }
+    inner.append(label, btn);
     th.append(inner);
     return th;
   }));
@@ -207,7 +233,7 @@ function filtersChanged() {
 function openFilter(btn) {
   const column = btn.dataset.column;
   if (state.panel) closeFilter(false);
-  const values = filterValues(state.items, state.filter.columns, column);
+  const values = filterValues(mergedItems(), state.filter.columns, column);
   const current = state.filter.columns[column];
   state.panel = {
     column, values, button: btn, query: '',
@@ -454,7 +480,9 @@ async function deleteSession() {
 async function exportDocument() {
   el.exportBtn.disabled = true;
   try {
-    const res = await sendJson('/api/export', 'POST', { selected_ids: [...state.selected] }, true);
+    const res = await sendJson('/api/export', 'POST', {
+      selected_ids: [...state.selected], user_values: state.userValues,
+    }, true);
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = make('a');
@@ -477,20 +505,36 @@ function bindEvents() {
   bindFilterEvents();
   el.rows.addEventListener('change', (e) => {
     const tr = e.target.closest('tr');
-    if (!tr) return;
+    if (!tr || e.target.type !== 'checkbox') return; // text cells are handled by 'input'
     changeSelection(setMany(state.selected, [tr.dataset.id], e.target.checked));
     // With "selected only" on, an unchecked row should disappear.
     if (state.filter.onlySelected) renderRows();
     else {
       tr.classList.toggle('selected', e.target.checked);
+      for (const input of tr.querySelectorAll('.cell-input')) input.readOnly = !e.target.checked;
       updateSummary();
     }
   });
+  el.rows.addEventListener('input', (e) => {
+    if (!e.target.classList.contains('cell-input')) return;
+    const id = e.target.closest('tr').dataset.id;
+    state.userValues = setUserValue(state.userValues, id, e.target.dataset.column, e.target.value);
+    state.dirty = true;
+  });
   // Clicking anywhere on a row toggles it; the checkbox's own click is handled by 'change'.
+  // Clicking a value cell of an unselected row selects the row and starts editing instead.
   el.rows.addEventListener('click', (e) => {
-    if (e.target.tagName === 'INPUT') return;
-    const cb = e.target.closest('tr')?.querySelector('input');
-    if (cb) cb.click();
+    const tr = e.target.closest('tr');
+    const cb = tr?.querySelector('input[type="checkbox"]');
+    if (!cb || e.target === cb) return;
+    if (e.target.classList.contains('cell-input')) {
+      if (!cb.checked) {
+        cb.click();
+        e.target.focus();
+      }
+      return;
+    }
+    cb.click();
   });
   el.selectVisible.addEventListener('change', () => {
     const ids = visible().map((i) => i.id);
@@ -519,7 +563,7 @@ async function init() {
   bindEvents();
   try {
     const data = await api('/api/items');
-    state.columns = data.columns.map((c) => c.name);
+    state.columns = data.columns;
     state.items = data.items;
     el.source.textContent = `Database: ${data.source}`;
     renderHeader();

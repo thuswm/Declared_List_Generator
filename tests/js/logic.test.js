@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   chooseFilter, currentLabel, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds,
-  sessionLabel, setMany,
+  sessionLabel, setMany, setUserValue, withUserValues,
 } from '../../src/dlg/static/logic.js';
 
 const row = (id, name, description, category, supplier = '') => (
@@ -133,4 +133,30 @@ test('currentLabel', () => {
   assert.equal(currentLabel('', 'Rig'), '');
   assert.equal(currentLabel('P', ''), 'Session: P');
   assert.equal(currentLabel('P', 'Rig 7'), 'Session: P · Configuration: Rig 7');
+});
+
+test('withUserValues fills only input columns and does not mutate', () => {
+  const cols = [{ name: 'ID' }, { name: 'SN', user_input: true }];
+  const list = [{ id: '1', values: { ID: '1', SN: '' } }, { id: '2', values: { ID: '2', SN: '' } }];
+  const merged = withUserValues(list, cols, { 1: { SN: 'S-1', ID: 'x' } });
+  assert.deepEqual(merged.map((i) => i.values), [{ ID: '1', SN: 'S-1' }, { ID: '2', SN: '' }]);
+  assert.equal(list[0].values.SN, '');
+  assert.equal(withUserValues(list, [{ name: 'ID' }], {}), list); // no input columns: same array
+});
+
+test('typed values are searchable and filterable', () => {
+  const cols = [{ name: 'ID' }, { name: 'SN', user_input: true }];
+  const list = [{ id: '1', values: { ID: '1', SN: '' } }, { id: '2', values: { ID: '2', SN: '' } }];
+  const merged = withUserValues(list, cols, { 2: { SN: 'abc-77' } });
+  assert.deepEqual(ids(filterItems(merged, { ...none, search: 'ABC' }, new Set())), ['2']);
+  assert.deepEqual(filterValues(merged, {}, 'SN'), ['abc-77', '']);
+});
+
+test('setUserValue adds, changes and removes values immutably', () => {
+  const a = setUserValue({}, 'X', 'SN', '1');
+  assert.deepEqual(a, { X: { SN: '1' } });
+  const b = setUserValue(a, 'X', 'Lot', 'L');
+  assert.deepEqual(b, { X: { SN: '1', Lot: 'L' } });
+  assert.deepEqual(a, { X: { SN: '1' } });
+  assert.deepEqual(setUserValue(setUserValue(b, 'X', 'SN', ''), 'X', 'Lot', ''), {});
 });

@@ -109,6 +109,10 @@ are appended to an existing file with their defaults, so you can see and change 
      ▾ is highlighted; **Clear filters** removes them all.
    - Search, column filters and **Selected only** all apply together.
      Filters are not saved in the session.
+   - **Input columns** (marked ✎) take a value you type per item, e.g. a
+     serial number. Their cells are editable for selected rows; clicking the
+     cell of an unselected row selects it. Typed values are saved with the
+     session, are searchable and filterable, and go into the Word table.
 2. Enter a **Name** and, optionally, a **Configuration** (what the items
    belong to, e.g. `Rig 7, build B`) and **Save** to store the selection as a
    session. **Load** a saved session later; the list shows each session's
@@ -129,7 +133,12 @@ the browser table and written to the Word table, in sheet order.
 - **Omitting a column:** start its header with `#` (e.g. `#Internal note`).
   The tool then ignores it completely: not shown, not searched, not exported.
   Columns without a header are ignored too.
-- Two shown columns with the same header are an error.
+- **User-input column:** end its header with `*` (e.g. `Serial number*`). The
+  user types its value per selected item in the tool; the `*` is not shown or
+  exported, and the sheet's own cells in that column are ignored. The ID column
+  cannot be an input column.
+- Two shown columns with the same header are an error (`Serial` and
+  `Serial*` count as the same header).
 - Dates are shown as `YYYY-MM-DD`; whole numbers without a decimal part.
 
 **Session file (JSON).** One readable file per session in the sessions folder:
@@ -151,8 +160,8 @@ the browser table and written to the Word table, in sheet order.
   two names give the same file name (e.g. `a/b` and `a_b`, or `Proj` and `proj`
   on Windows), the second is stored as `a_b (2).json`.
 - `configuration_name` describes the configuration the items belong to;
-  `user_values` holds values typed for selected items (used from a later
-  0.2.0 step).
+  `user_values` holds the values typed in input columns, for selected items only
+  (values of deselected items are dropped on save).
 - Files from version 0.1.0 (`schema_version` 1) still load; they are written in
   the new format the next time they are saved. Files from a newer version of
   the tool are refused with a clear message.
