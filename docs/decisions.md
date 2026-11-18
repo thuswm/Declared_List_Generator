@@ -3,6 +3,30 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-18 – README for Linux and Windows (0.2.0 step 2)
+- Windows commands use `.venv\Scripts\python` directly (works in PowerShell and cmd without activation); `py -3` launcher for creating the venv.
+- `".[dev]"` in double quotes: cmd does not treat single quotes as quoting.
+- Gotcha: PowerShell may block `Activate.ps1` (execution policy); README offers calling the venv Python directly or `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+- Windows paths in `config.toml`: doubled backslashes in `"..."`, or `'...'` literal strings, or forward slashes (checked with `tomllib`).
+
+## 2026-11-18 – 0.2.0 scope update after Windows test
+- Windows test: the exported `.docx` opens correctly in real MS Word.
+- **Columns come from the Excel file** (names, number, order); nothing is hard-coded. The ID column name is a config setting `id_column` (default `ID`) because the real database's ID header is not known yet; IDs must be unique (sessions store selections by ID). Missing ID column → clear error naming the setting.
+- **Omit marker:** a header starting with `#` (e.g. `#Internal note`) is ignored everywhere: not shown, not searchable, not exported. Empty headers are ignored as before.
+- **User-input marker** stays a trailing `*`; markers are stripped for display/export.
+- **Filtering:** the single category dropdown is replaced by Excel-style filters on every column (distinct-value checklist + text box), combined with the global search.
+- Word table: Excel columns in sheet order, widths derived from content length (no per-column config). The Word table contains exactly the non-omitted Excel columns – the automatic `No.` column is dropped.
+- README must give setup/run instructions for both Linux and Windows.
+- Order: column model before user-input columns, since `*` columns build on it.
+
+## 2026-11-17 – 0.2.0 design decisions
+- **Config file:** TOML (read with `tomllib`, small hand-written writer), one per user, created with defaults on first run. Linux/macOS `$XDG_CONFIG_HOME/dlg/config.toml` (default `~/.config/dlg/config.toml`), Windows `%APPDATA%\dlg\config.toml`, override `--config <path>`. Replaces `DLG_*` env vars. Settings: `items_file`, `template_file`, `sessions_dir`, `output_dir`, `host`, `port` (+ `id_column` from 2026-11-18).
+- **Folder/file browsing:** server-side browser dialog in the GUI (no `tkinter`), localhost only.
+- **Output:** written to `output_dir` only (no browser download) under a user-given name (default from the configuration name); GUI shows the saved path. `{{CONFIGURATION_NAME}}` placeholder in the template.
+- **User-input columns:** header ends with `*`; values per selected item saved in the session and written as extra Word columns.
+- **Session schema v2:** `configuration_name`, `user_values` (`{item_id: {column: value}}`); v1 files still load; filename-collision fix (`a/b` vs `a_b`) in the same change.
+- **Exit button:** `POST /api/shutdown`, localhost only; GUI shows "server stopped".
+
 ## 2026-11-17 – Versioning and documentation layout
 - Semantic versioning, annotated git tags (`v0.1.0` = first workable version). Version lives in `pyproject.toml` and matches the tag. Session `schema_version` is separate from the app version.
 - Short-lived feature branches merged into `main`; tag `main` at each release.

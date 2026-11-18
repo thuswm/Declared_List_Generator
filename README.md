@@ -5,36 +5,65 @@ and export a Word document containing the declared list as a table.
 
 ## Setup
 
-Requires Python 3.11+. The project's dependencies live in a virtual
-environment (`.venv`), so a plain `python -m dlg` from the system Python fails
-with `No module named dlg`. Either activate the venv or call its Python directly.
+Requires Python 3.11 or newer. The project's dependencies are installed into a
+virtual environment (`.venv`) in the project folder, so a plain `python -m dlg`
+from the system Python fails with `No module named dlg`. Either activate the
+venv or call its Python directly (both shown below).
+
+All commands are run from the project folder. Each setup step is needed only once.
+
+### Linux / macOS (bash, zsh)
 
 ```bash
-python -m venv .venv                       # once
-.venv/bin/pip install -e '.[dev]'          # once; drop '[dev]' if you don't need the tests
-.venv/bin/python tools/make_examples.py    # once; writes data/items.xlsx and the example template
+python3 -m venv .venv
+.venv/bin/pip install -e '.[dev]'          # drop '[dev]' if you don't need the tests
+.venv/bin/python tools/make_examples.py    # writes data/items.xlsx and the example template
 ```
+
+### Windows (PowerShell or Command Prompt)
+
+Install Python from [python.org](https://www.python.org/downloads/windows/)
+(it includes the `py` launcher). Then:
+
+```bat
+py -3 -m venv .venv
+.venv\Scripts\pip install -e ".[dev]"
+.venv\Scripts\python tools\make_examples.py
+```
+
+Use double quotes around `".[dev]"`: Command Prompt does not understand single quotes.
 
 ## Run
 
-Run from the project folder, using the venv's Python:
+Linux / macOS:
 
 ```bash
 .venv/bin/python -m dlg                    # starts the server and opens the browser
 ```
 
-or activate the venv once per terminal and then use plain `python`
-(bash/zsh; on Windows use `.venv\Scripts\activate`):
+Windows:
 
-```bash
-source .venv/bin/activate
-python -m dlg
+```bat
+.venv\Scripts\python -m dlg
 ```
+
+Alternatively, activate the venv once per terminal and then use plain `python -m dlg`:
+
+| Shell              | Activate                         |
+|--------------------|----------------------------------|
+| bash / zsh         | `source .venv/bin/activate`      |
+| PowerShell         | `.venv\Scripts\Activate.ps1`     |
+| Command Prompt     | `.venv\Scripts\activate.bat`     |
+
+If PowerShell refuses to run `Activate.ps1` ("running scripts is disabled on this
+system"), either call `.venv\Scripts\python` directly as above, or allow local
+scripts once for your user:
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
 Options: `--config`, `--port 9000`, `--no-browser`, `--host`. The server listens on
 `127.0.0.1` only by default. There is no authentication, so do not expose it
 on an untrusted network. If the port is already in use, pick another with
-`--port`. Stop the server with Ctrl+C.
+`--port`. Stop the server with Ctrl+C in the terminal.
 
 ### Configuration
 
@@ -48,6 +77,10 @@ tool starts (or whenever it is missing; delete it to reset):
 
 Use a different file with `python -m dlg --config path/to/config.toml`.
 
+To open it for editing: `xdg-open ~/.config/dlg/config.toml` (Linux),
+`notepad "$env:APPDATA\dlg\config.toml"` (PowerShell) or
+`notepad "%APPDATA%\dlg\config.toml"` (Command Prompt).
+
 | Key             | Default                                    | Meaning                                  |
 |-----------------|--------------------------------------------|------------------------------------------|
 | `items_file`    | `data/items.xlsx` (in the project)         | Excel item database                      |
@@ -57,6 +90,9 @@ Use a different file with `python -m dlg --config path/to/config.toml`.
 | `host`, `port`  | `127.0.0.1`, `8000`                        | Where the server listens                 |
 
 Relative paths in the file are resolved against the folder containing it.
+Windows paths: inside double quotes a backslash must be doubled
+(`"C:\\Data\\items.xlsx"`); single quotes (`'C:\Data\items.xlsx'`) or forward
+slashes (`"C:/Data/items.xlsx"`) also work.
 `--host` / `--port` on the command line override the file. The old `DLG_*`
 environment variables are no longer used.
 
@@ -111,8 +147,9 @@ template). The table has a repeating header row. Change the columns in
 ## Tests
 
 ```bash
-.venv/bin/pytest          # Python tests (also runs the JS tests if Node is installed)
-node --test tests/js      # JS tests alone
+.venv/bin/pytest          # Linux/macOS: Python tests (also runs the JS tests if Node is installed)
+.venv\Scripts\pytest      # Windows
+node --test tests/js      # JS tests alone (needs Node.js)
 ```
 
 ## Layout

@@ -14,6 +14,5 @@ See `PLAN.md` (Release 0.2.0).
 - Cache the Excel read if the database grows large.
 
 ## Known issues / checks
-- Open an exported `.docx` in real Word (only checked in LibreOffice).
-- Real Word template from the user: placeholder `{{DECLARED_LIST}}` in a landscape section; adjust `TABLE_COLUMNS`.
+- Real Word template from the user: placeholder `{{DECLARED_LIST}}` in a landscape section (columns now come from the Excel file, see 0.2.0 step 3).
 - Session-name collisions (`a/b` vs `a_b`) share one file.
