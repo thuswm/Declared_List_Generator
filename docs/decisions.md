@@ -3,6 +3,16 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-19 – 0.3.0 planning decisions (user, not yet implemented)
+- **Word table layout (step 5) is drawn in Excel, not in the Word template:** header rows hold free text; merged cells (across and down) become merged cells in Word. The last row in use is the mapping row: each cell names a data-sheet column, data rows follow beneath in that order.
+- Default location: sheet "Word layout" inside the database workbook; a "Table layout" setting can point to another `.xlsx` file and sheet.
+- A column ending in `*` is an input column in either place (data sheet or mapping row). A mapping-row input column does not have to exist in the database; the browser table shows it as an input column.
+- Only mapped columns appear in Word, in mapping order; `#` still hides columns from the browser table. No layout sheet → current automatic table. Unknown column in the mapping row → error listing the available columns.
+- Excel column widths in the layout sheet set the relative Word column widths, scaled to the table width.
+- **Session library (steps 3–4):** "loading other sessions" means opening session files from any folder. Library = user folder (`sessions_dir`) + global/shared folder (new setting) + any folder via Browse. Merging several sessions into one selection → backlog (user wants to think it through).
+- The Template-file setting (step 2) stays, but is no longer a prerequisite for step 5.
+- **Table font size (step 6)** is a separate setting (default = template font), not read from the layout sheet's mapping row.
+
 ## 2026-11-18 – Exit button (0.2.0 step 10)
 - `POST /api/shutdown` (local-only, 202) schedules `on_shutdown` as a FastAPI background task, so the response is sent before the server begins to stop. `create_app(..., on_shutdown=None)` → 503 "use Ctrl+C" (tests/programmatic use).
 - The launcher builds `uvicorn.Server(uvicorn.Config(...))` itself instead of `uvicorn.run`, and `on_shutdown` sets `server.should_exit = True`: uvicorn's normal graceful shutdown (finishes open requests, process exits with code 0). Verified end to end: clicking Exit in headless Chromium ends the server process.
