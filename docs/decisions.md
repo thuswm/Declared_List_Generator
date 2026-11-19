@@ -3,6 +3,12 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-19 – Save to… (0.3.0 step 4, reduced)
+- Step 4 was reduced with the user to "Save to…" so they can try it out. Opening single `.json` files directly was dropped for now, since the library's Other folder tab already loads from any folder.
+- `POST /api/sessions` takes an optional `folder` (absolute, existing, local-only, checked inside the handler because a plain save must keep working for remote clients) and now returns the session plus `path` (`SavedSession`).
+- GUI: a "Save to…" button opens the folder dialog at the shared library (else My sessions). Both libraries are listed first under "Go to…" (`openBrowse({shortcuts, selectLabel})`), and the button reads "Save here". Plain Save still writes to My sessions.
+- Overwrite question: for Save to…, it is skipped only when the same-named session in the target folder *is* the current session's file (`sessionPath`); for plain Save, the previous rule applies. The header shows "(shared library)" or "(other folder)" for the current session's location. `libraryKind(folder)` maps a folder to its library by comparing paths, ignoring trailing separators.
+
 ## 2026-11-19 – Session library browser (0.3.0 step 3)
 - **Path-based library API** (all local-only, since they read/delete files by path): `GET /api/library?folder=` (empty = `sessions_dir`; a missing user library is just empty because it is created on first save, while another missing folder → 404) returns `{folder, sessions: [summary + file + path], skipped: [{file, error}]}`. `GET`/`DELETE /api/library/session?path=`. The name-based `/api/sessions` endpoints stay for saving into the user library and for the overwrite check.
 - `SessionStore.scan()` reports unreadable files (the GUI lists them as "not listed"), and `list()` is built on it. `delete_file` first parses the file as a session, so a wrong path can never delete an unrelated file. Only `.json` files are accepted.

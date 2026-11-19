@@ -125,3 +125,36 @@ def test_invalid_session_folders_change_nothing(env: tuple[TestClient, Path, Pat
     r = c.put("/api/settings", json=body)
     assert r.status_code == 400 and fragment in r.json()["detail"]
     assert c.get("/api/settings").json() == before
+
+
+def test_save_to_a_chosen_folder(env: tuple[TestClient, Path, Path]) -> None:
+    """"Save to…" writes into the given folder, returns the path and overwrites by name there."""
+    c, user, shared = env
+    body = {"name": "Team list", "configuration_name": "Rig 7", "selected_ids": ["DL-001"], "folder": str(shared)}
+    r = c.post("/api/sessions", json=body)
+    assert r.status_code == 200, r.text
+    assert r.json()["path"] == str(shared / "Team list.json")
+    assert not (user / "Team list.json").exists()
+    r2 = c.post("/api/sessions", json={**body, "selected_ids": ["DL-002"]})
+    assert r2.json()["path"] == r.json()["path"]
+    assert r2.json()["created"] == r.json()["created"]  # same session overwritten
+    assert [s["selected_ids"] for s in [c.get("/api/library/session", params={"path": r.json()["path"]}).json()]] == [["DL-002"]]
+
+
+def test_plain_save_still_goes_to_my_sessions_and_returns_path(env: tuple[TestClient, Path, Path]) -> None:
+    """Without a folder the session goes to the user's library, as before."""
+    c, user, _ = env
+    r = c.post("/api/sessions", json={"name": "Mine", "selected_ids": []})
+    assert r.json()["path"] == str(user / "Mine.json")
+
+
+def test_save_to_rejects_bad_folders_and_remote_clients(env: tuple[TestClient, Path, Path]) -> None:
+    """The folder must be an existing absolute folder, and only this computer may choose one."""
+    c, _, shared = env
+    body = {"name": "x", "selected_ids": []}
+    assert c.post("/api/sessions", json={**body, "folder": "relative"}).status_code == 400
+    r = c.post("/api/sessions", json={**body, "folder": str(ROOT / "no" / "such")})
+    assert r.status_code == 400 and "not found" in r.json()["detail"]
+    remote = TestClient(c.app, client=("192.168.1.20", 50000))
+    assert remote.post("/api/sessions", json={**body, "folder": str(shared)}).status_code == 403
+    assert remote.post("/api/sessions", json=body).status_code == 200  # plain save unaffected

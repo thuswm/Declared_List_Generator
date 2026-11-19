@@ -186,12 +186,24 @@ class SaveSessionRequest(BaseModel):
         configuration_name: Configuration the selection belongs to.
         selected_ids: IDs of the selected items.
         user_values: Values typed by the user, per item ID and column name.
+        folder: Folder to save into ("Save to…"); empty for the user's library.
     """
 
     name: str = Field(min_length=1, max_length=200)
     configuration_name: str = Field(default="", max_length=500)
     selected_ids: list[str]
     user_values: dict[str, dict[str, str]] = Field(default_factory=dict)
+    folder: str = ""
+
+
+class SavedSession(Session):
+    """Response of ``POST /api/sessions``: the stored session and where it was written.
+
+    Attributes:
+        path: The session file.
+    """
+
+    path: str
 
 
 class ExportRequest(BaseModel):
@@ -373,14 +385,22 @@ def create_app(
         except SessionError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    @app.post("/api/sessions", response_model=Session)
-    def save_session(req: SaveSessionRequest) -> Session:
-        """Create or overwrite a session.
+    @app.post("/api/sessions", response_model=SavedSession)
+    def save_session(req: SaveSessionRequest, request: Request) -> SavedSession:
+        """Create or overwrite a session in the user's library or a chosen folder.
 
         IDs are stored as given (not checked against the database) so a session
         can be saved even if the database is temporarily unavailable; they are
         validated when exporting.
         """
+        if req.folder.strip():
+            require_local(request)  # writing to a chosen path: like the other path endpoints
+            folder = _checked_path(req.folder, "Session folder")
+            if not folder.is_dir():
+                raise HTTPException(status_code=400, detail=f"Session folder not found: {folder}")
+            target = SessionStore(folder)
+        else:
+            target = store()
         session = Session(
             name=req.name,
             configuration_name=req.configuration_name.strip(),
@@ -389,8 +409,9 @@ def create_app(
             user_values=req.user_values,
         )
         try:
-            store().save(session)
-            return store().load(req.name)  # reflects de-duplication and timestamps
+            path = target.save(session)
+            # Read back: reflects de-duplication and timestamps.
+            return SavedSession(**SessionStore.read_file(path).model_dump(), path=str(path))
         except SessionNotFoundError as exc:  # pragma: no cover - just written
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         except SessionError as exc:

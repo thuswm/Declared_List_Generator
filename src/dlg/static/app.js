@@ -49,7 +49,7 @@ const el = {
   clear: $('clear-btn'), count: $('count'), exportBtn: $('export-btn'),
   selectVisible: $('select-visible'), sessionName: $('session-name'), configName: $('config-name'),
   current: $('current'), fileName: $('file-name'), fileNameReset: $('file-name-reset'), version: $('version'), exitBtn: $('exit-btn'), stopped: $('stopped'),
-  save: $('save-btn'), libraryBtn: $('library-btn'), library: $('library-dialog'),
+  save: $('save-btn'), saveTo: $('save-to-btn'), libraryBtn: $('library-btn'), library: $('library-dialog'),
   libraryFolder: $('library-folder'), libraryChange: $('library-change'), librarySearch: $('library-search'),
   libraryCount: $('library-count'), libraryRows: $('library-rows'), libraryEmpty: $('library-empty'),
   libraryError: $('library-error'), librarySkipped: $('library-skipped'), libraryChoice: $('library-choice'),
@@ -381,12 +381,26 @@ function bindFilterEvents() {
 
 /** Names of the libraries, as shown to the user. */
 const LIBRARY_NAMES = { user: 'My sessions', global: 'the shared library', other: 'another folder' };
+/** Header suffix telling where the current session lives (none for My sessions). */
+const LIBRARY_TAGS = { user: '', global: ' (shared library)', other: ' (other folder)' };
+
+/**
+ * Work out which library a folder is.
+ * @param {string} folder Folder path ('' = My sessions).
+ * @returns {'user'|'global'|'other'} The library.
+ */
+function libraryKind(folder) {
+  const norm = (p) => p.replace(/[\\/]+$/, '');
+  if (!folder || norm(folder) === norm(state.libraryDirs.user)) return 'user';
+  if (state.libraryDirs.global && norm(folder) === norm(state.libraryDirs.global)) return 'global';
+  return 'other';
+}
 
 /** Show the current session and its configuration in the page header. */
 function renderCurrent() {
   const text = currentLabel(state.sessionName, state.configurationName);
-  // Say where a session from outside the user's library came from: saving puts it in My sessions.
-  el.current.textContent = text && state.sessionKind !== 'user' ? `${text} (from ${LIBRARY_NAMES[state.sessionKind]})` : text;
+  // Say where a session outside the user's library lives: plain Save puts a copy in My sessions.
+  el.current.textContent = text ? text + LIBRARY_TAGS[state.sessionKind] : text;
   el.current.hidden = !text;
 }
 
@@ -403,38 +417,57 @@ function confirmDiscard() {
   return !state.dirty || window.confirm('You have unsaved changes to the current selection. Discard them?');
 }
 
-/** Save the current selection under the entered name. */
-async function saveSession() {
+/**
+ * Check the session name field; complain if it is empty.
+ * @returns {string} The trimmed name, or '' if missing.
+ */
+function requireSessionName() {
   const name = el.sessionName.value.trim();
   if (!name) {
     showStatus('Enter a session name first.', 'error');
     el.sessionName.focus();
-    return;
   }
-  // Names are exact (case-sensitive) keys on the server, so compare exactly here too.
-  // A session loaded from another library is saved into My sessions, so a same-named
-  // session there is a different one and is only overwritten after asking.
-  const exists = state.sessions.some((s) => s.name === name);
-  if (exists && !(name === state.sessionName && state.sessionKind === 'user')
-      && !window.confirm(`A session named "${name}" already exists. Overwrite it?`)) {
-    return;
-  }
+  return name;
+}
+
+/**
+ * Save the current selection under the entered name.
+ * @param {string} [folder] Folder to save into ("Save to…"); '' for My sessions.
+ */
+async function saveSession(folder = '') {
+  const name = requireSessionName();
+  if (!name) return;
   try {
+    // Names are exact (case-sensitive) keys on the server, so compare exactly here too.
+    // Overwriting needs no question only when saving the current session back to its own file.
+    const existing = folder
+      ? (await api(`/api/library?${new URLSearchParams({ folder })}`)).sessions.find((s) => s.name === name)
+      : state.sessions.find((s) => s.name === name);
+    const ownFile = folder
+      ? existing?.path === state.sessionPath
+      : name === state.sessionName && state.sessionKind === 'user';
+    const kind = libraryKind(folder);
+    const where = kind === 'other' ? ` in ${folder}` : ` in ${LIBRARY_NAMES[kind]}`;
+    if (existing && !ownFile && !window.confirm(`A session named "${name}" already exists${where}. Overwrite it?`)) {
+      return;
+    }
     const saved = await sendJson('/api/sessions', 'POST', {
       name,
       configuration_name: el.configName.value.trim(),
       selected_ids: [...state.selected],
       user_values: state.userValues,
+      folder,
     });
     state.sessionName = saved.name;
-    state.sessionKind = 'user';
-    state.sessionPath = '';
+    state.sessionKind = libraryKind(folder);
+    state.sessionPath = saved.path;
     state.configurationName = saved.configuration_name;
     el.configName.value = saved.configuration_name;
     state.dirty = false;
     renderCurrent();
     await refreshSessions();
-    showStatus(`Saved "${saved.name}" (${saved.selected_ids.length} items).`);
+    const n = saved.selected_ids.length;
+    showStatus(`Saved "${saved.name}" (${n} item${n === 1 ? '' : 's'}) to ${saved.path}.`);
   } catch (err) {
     showStatus(err.message, 'error');
   }
@@ -468,6 +501,21 @@ function applySession(session, kind, path) {
   } else {
     showStatus(`Loaded "${session.name}"${from} (${known.length} item${known.length === 1 ? '' : 's'}).${saveNote}`);
   }
+}
+
+/** "Save to…": choose a folder (the libraries are offered as shortcuts), then save there. */
+function saveSessionTo() {
+  if (!requireSessionName()) return;
+  const shortcuts = [{ name: 'My sessions', path: state.libraryDirs.user }];
+  if (state.libraryDirs.global) shortcuts.unshift({ name: 'Shared library', path: state.libraryDirs.global });
+  openBrowse({
+    title: 'Save the session to folder',
+    files: false,
+    start: state.libraryDirs.global || state.libraryDirs.user,
+    shortcuts,
+    selectLabel: 'Save here',
+    onChoose: (folder) => saveSession(folder),
+  });
 }
 
 // ---- Session library dialog ----------------------------------------------
@@ -821,18 +869,20 @@ async function saveSettings() {
 // ---- Browse dialog -------------------------------------------------------
 
 /** State of the open browse dialog. */
-const browse = { files: true, ext: '.xlsx', path: '', chosen: '', onChoose: null };
+const browse = { files: true, ext: '.xlsx', shortcuts: [], path: '', chosen: '', onChoose: null };
 
 /**
  * Open the browse dialog.
- * @param {{title:string, files:boolean, ext?:string, start:string, onChoose:(path:string)=>void}} opts
+ * @param {{title:string, files:boolean, ext?:string, start:string, shortcuts?:Array<{name:string,path:string}>,
+ *   selectLabel?:string, onChoose:(path:string)=>void}} opts
  *   `files`: choose a file (true) or a folder (false); `ext`: extension of the files to list
- *   (default `.xlsx`); `start`: folder or file to open at.
+ *   (default `.xlsx`); `start`: folder or file to open at; `shortcuts`: extra "Go to…" entries
+ *   listed first; `selectLabel`: text of the Select button.
  */
-function openBrowse({ title, files, ext = '.xlsx', start, onChoose }) {
-  Object.assign(browse, { files, ext, chosen: '', onChoose });
+function openBrowse({ title, files, ext = '.xlsx', start, shortcuts = [], selectLabel, onChoose }) {
+  Object.assign(browse, { files, ext, shortcuts, chosen: '', onChoose });
   el.browseTitle.textContent = title;
-  el.browseSelect.textContent = files ? 'Select file' : 'Select this folder';
+  el.browseSelect.textContent = selectLabel || (files ? 'Select file' : 'Select this folder');
   el.browse.showModal();
   navigate(start);
 }
@@ -854,7 +904,7 @@ async function navigate(path) {
     el.browseUp.disabled = !listing.parent;
     el.browseUp.dataset.path = listing.parent || '';
     el.browseRoots.replaceChildren(new Option('Go to…', ''),
-      ...listing.roots.map((r) => new Option(r.name, r.path)));
+      ...[...browse.shortcuts, ...listing.roots].map((r) => new Option(r.name, r.path)));
     renderBrowseList(listing);
   } catch (err) {
     el.browseError.textContent = err.message;
@@ -1018,7 +1068,8 @@ function bindEvents() {
     renderRows();
   });
   el.clear.addEventListener('click', () => { changeSelection(new Set()); renderRows(); });
-  el.save.addEventListener('click', saveSession);
+  el.save.addEventListener('click', () => saveSession());
+  el.saveTo.addEventListener('click', saveSessionTo);
   el.exportBtn.addEventListener('click', exportDocument);
   el.sessionName.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveSession(); });
   el.configName.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveSession(); });
