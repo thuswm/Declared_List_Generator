@@ -45,6 +45,17 @@
         <button id="template-browse" type="button">Browse…</button>
       </div>
       <div class="row">
+        <label for="layout-file">Table layout</label>
+        <input id="layout-file" type="text" class="wide path" spellcheck="false"
+               placeholder="Empty: the layout sheet inside the item database">
+        <button id="layout-browse" type="button">Browse…</button>
+      </div>
+      <div class="row">
+        <label for="layout-sheet">Layout sheet</label>
+        <input id="layout-sheet" type="text" maxlength="100" spellcheck="false" placeholder="Word layout">
+        <span class="muted small">Without this sheet the Word table gets one header row with all columns.</span>
+      </div>
+      <div class="row">
         <label for="output-dir">Output folder</label>
         <input id="output-dir" type="text" class="wide path" spellcheck="false" placeholder="Folder for generated Word documents">
         <button id="output-browse" type="button">Browse…</button>

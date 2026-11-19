@@ -27,7 +27,7 @@ const state = {
   libraryDirs: { user: '', global: '' }, // session library folders from the settings
   configurationName: '', // configuration name of that session, as last loaded or saved
   userValues: {}, // values typed in user-input columns: {itemId: {column: value}}
-  savedDatabase: '', // item database path + ID column as last saved (detects a change)
+  savedDatabase: '', // database, ID column and layout settings as last saved (detects a column change)
   fileNameEdited: false, // the user typed a file name; stop suggesting one
   dirty: false, // selection changed since last load/save
 };
@@ -41,6 +41,7 @@ const el = {
   panelOk: $('filter-ok'), panelCancel: $('filter-cancel'), panelClear: $('filter-clear'),
   settings: $('settings'), itemsFile: $('items-file'), idColumn: $('id-column'), outputDir: $('output-dir'),
   templateFile: $('template-file'), templateBrowse: $('template-browse'),
+  layoutFile: $('layout-file'), layoutBrowse: $('layout-browse'), layoutSheet: $('layout-sheet'),
   itemsBrowse: $('items-browse'), outputBrowse: $('output-browse'), settingsSave: $('settings-save'),
   configFile: $('config-file'), browse: $('browse-dialog'), browseTitle: $('browse-title'),
   browseRoots: $('browse-roots'), browseUp: $('browse-up'), browsePath: $('browse-path'), browseGo: $('browse-go'),
@@ -805,15 +806,18 @@ async function exportDocument() {
 
 /**
  * Put settings into the panel and remember which database they describe.
- * @param {{items_file:string,id_column:string,template_file:string,output_dir:string}} cfg Settings from the server.
+ * @param {object} cfg Settings from the server (see SettingsResponse).
  */
 function showSettings(cfg) {
   el.itemsFile.value = cfg.items_file;
   el.idColumn.value = cfg.id_column;
   el.templateFile.value = cfg.template_file;
+  el.layoutFile.value = cfg.table_layout_file;
+  el.layoutSheet.value = cfg.table_layout_sheet;
   el.outputDir.value = cfg.output_dir;
   state.libraryDirs = { user: cfg.sessions_dir, global: cfg.global_sessions_dir };
-  state.savedDatabase = `${cfg.items_file}\n${cfg.id_column}`;
+  // Everything that changes the columns: a change reloads the items.
+  state.savedDatabase = [cfg.items_file, cfg.id_column, cfg.table_layout_file, cfg.table_layout_sheet].join('\n');
 }
 
 /** Fill the settings panel from the server. */
@@ -836,6 +840,8 @@ async function saveSettings() {
       items_file: el.itemsFile.value.trim(),
       id_column: el.idColumn.value.trim(),
       template_file: el.templateFile.value.trim(),
+      table_layout_file: el.layoutFile.value.trim(),
+      table_layout_sheet: el.layoutSheet.value.trim(),
       output_dir: el.outputDir.value.trim(),
     });
     showSettings(cfg);
@@ -849,7 +855,7 @@ async function saveSettings() {
         showStatus(`Settings saved. ${dropped.length} selected item(s) are not in the new database `
           + `and were deselected: ${dropped.join(', ')}`, 'warn');
       } else {
-        showStatus(`Settings saved. Loaded ${state.items.length} items from the new database.`);
+        showStatus(`Settings saved. Loaded ${state.items.length} items.`);
       }
     } catch (err) {
       state.items = [];
@@ -857,7 +863,7 @@ async function saveSettings() {
       el.source.textContent = `Database: ${cfg.items_file.split(/[\\/]/).pop()} (not loaded)`;
       renderHeader();
       renderRows();
-      showStatus(`Settings saved, but the database cannot be used: ${err.message}`, 'error');
+      showStatus(`Settings saved, but the items cannot be loaded: ${err.message}`, 'error');
     }
   } catch (err) {
     showStatus(err.message, 'error');
@@ -960,6 +966,11 @@ function bindSettingsEvents() {
   el.itemsBrowse.addEventListener('click', () => openBrowse({
     title: 'Choose the item database (.xlsx)', files: true, start: el.itemsFile.value.trim(),
     onChoose: (p) => { el.itemsFile.value = p; el.settingsSave.focus(); },
+  }));
+  el.layoutBrowse.addEventListener('click', () => openBrowse({
+    title: 'Choose the workbook with the Word layout sheet (.xlsx)', files: true,
+    start: el.layoutFile.value.trim() || el.itemsFile.value.trim(),
+    onChoose: (p) => { el.layoutFile.value = p; el.settingsSave.focus(); },
   }));
   el.templateBrowse.addEventListener('click', () => openBrowse({
     title: 'Choose the Word template (.docx)', files: true, ext: '.docx', start: el.templateFile.value.trim(),
@@ -1103,7 +1114,11 @@ async function loadItems() {
   }
   const { known, unknown } = partitionIds([...state.selected], state.items);
   if (unknown.length) changeSelection(new Set(known));
-  el.source.textContent = `Database: ${data.source}`;
+  const word = data.layout
+    ? `Word table: ${data.layout} (${data.word_columns.length} columns)`
+    : 'Word table: automatic (all columns)';
+  el.source.textContent = `Database: ${data.source} · ${word}`;
+  el.source.title = `Columns in the Word table: ${data.word_columns.join(', ')}`;
   renderHeader();
   renderRows();
   return unknown;

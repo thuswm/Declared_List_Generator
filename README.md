@@ -138,9 +138,10 @@ The Excel file is re-read on every page load, so you can edit it and refresh.
 
 ## File formats
 
-**Item database (Excel).** First sheet, first row = headers. The columns of
-the sheet are the columns of the tool: every column with a header is shown in
-the browser table and written to the Word table, in sheet order.
+**Item database (Excel).** First sheet (other than the Word layout sheet),
+first row = headers. The columns of the sheet are the columns of the tool:
+every column with a header is shown in the browser table and, without a
+layout sheet, written to the Word table, in sheet order.
 
 - **ID column:** one column holds a unique ID per item (selections are saved
   by ID). Its header is set by `id_column` in the configuration file (default
@@ -185,14 +186,47 @@ the browser table and written to the Word table, in sheet order.
 `{{DECLARED_LIST}}` where the table should go. The table is inserted there and
 inherits that section's page setup, so put the placeholder in a **landscape
 section** (with portrait sections before and after, as in the example
-template). The table has a repeating header row and exactly the shown
-(non-`#`) columns of the item database; column widths follow the length of
-their content.
+template). Without a layout sheet (below), the table has one repeating
+header row and exactly the shown (non-`#`) columns of the item database; column
+widths follow the length of their content.
 
 `{{CONFIGURATION_NAME}}` anywhere in the template (body text, tables, headers
 and footers) is replaced by the configuration name entered in the tool, e.g.
 `Configuration: {{CONFIGURATION_NAME}}` as in the example template. Text boxes
 are not searched.
+
+**Word table layout (Excel sheet, optional).** Draws a multi-level table header
+with merged cells. By default it is a sheet called `Word layout` in the item
+database workbook; Settings → *Table layout* / *Layout sheet* can point to
+another `.xlsx` and sheet. Example: `data/layout_example.xlsx` (written by
+`tools/make_examples.py`).
+
+```
+        A        B              C           D           E                F
+1   | Item                  | Supplier  | Category  | Traceability                |
+2   | No.    | Designation  | (merged ↓)| (merged ↓)| Serial number  | Checked by |
+3     ID       Name           Supplier    Category    Serial number*   Checked by*   ← mapping row
+```
+
+- The **last used row is the mapping row**. Each cell names a column of the
+  data sheet; the selected items are written beneath the header in that order.
+  The mapping row itself is **not printed**. Every cell between its first and
+  last filled cell must name a column; a column may be mapped once.
+- The rows **above** it are the Word header: free text; merged cells (across
+  and down) become merged cells in Word; Alt+Enter line breaks are kept. With
+  no rows above, the mapping names form a one-row header. Merged cells must not
+  include the mapping row (merging erases the text of all but the first cell).
+- **Only mapped columns** go to Word, in mapping order. Unmapped columns are
+  still shown in the browser (hide them there with `#` as before).
+- A mapping name ending in `*` is a **user-input column**, even if the data
+  sheet has it as a normal column. It does not have to exist in the database:
+  the tool adds it to the browser table as an input column.
+- A mapping name that is not a shown database column (and has no `*`) is an
+  error that lists the available columns.
+- **Column widths** in the layout sheet set the relative widths in Word,
+  scaled to the page width.
+- No layout sheet in the database workbook → the automatic table. A separately
+  chosen layout file must contain the named sheet.
 
 ## Behaviour worth knowing
 

@@ -53,6 +53,9 @@ class Config:
         sessions_dir: Folder for session JSON files (the user's library).
         global_sessions_dir: Shared session library (e.g. on a network drive);
             None when not set. Written as ``""`` in the file.
+        table_layout_file: Workbook with the Word table layout sheet; None
+            (``""``) means the item database workbook.
+        table_layout_sheet: Name of the Word table layout sheet.
         output_dir: Folder where generated Word documents are written.
         id_column: Header of the item-database column holding the unique item IDs.
         host: Interface the server binds to (localhost: no authentication).
@@ -63,15 +66,19 @@ class Config:
     template_file: Path = field(default_factory=lambda: _default_path("templates/declared_list_template.docx"))
     sessions_dir: Path = field(default_factory=lambda: _default_path("sessions"))
     global_sessions_dir: Path | None = None
+    table_layout_file: Path | None = None
+    table_layout_sheet: str = "Word layout"
     output_dir: Path = field(default_factory=lambda: _default_path("output"))
     id_column: str = "ID"
     host: str = "127.0.0.1"
     port: int = 8000
 
 
-_PATH_KEYS = ("items_file", "template_file", "sessions_dir", "global_sessions_dir", "output_dir")
+_PATH_KEYS = (
+    "items_file", "template_file", "sessions_dir", "global_sessions_dir", "output_dir", "table_layout_file",
+)
 #: Path settings that may be unset (``""`` in the file, None in memory).
-_OPTIONAL_PATH_KEYS = ("global_sessions_dir",)
+_OPTIONAL_PATH_KEYS = ("global_sessions_dir", "table_layout_file")
 
 
 def _file_value(value: object) -> str | int:
@@ -195,6 +202,8 @@ def load_config(path: Path | None = None) -> Config:
     if not config.id_column.strip():
         raise ConfigError(f"Configuration file {path}: 'id_column' must not be empty.")
     config.id_column = config.id_column.strip()
+    if not config.table_layout_sheet.strip():
+        raise ConfigError(f"Configuration file {path}: 'table_layout_sheet' must not be empty.")
     return config
 
 

@@ -19,6 +19,7 @@ from dlg import get_version
 from dlg.config import Config, ConfigError, save_config
 from dlg.docgen import DocgenError, OutputLockedError, check_template, generate_declared_list
 from dlg.filebrowser import BrowseError, BrowseNotFoundError, Listing, list_folder
+from dlg.layout import LayoutError, TableLayout, apply_layout, load_layout
 from dlg.models import Column, Item, ItemTable, Session
 from dlg.sessions import WINDOWS_RESERVED_NAMES, SessionError, SessionNotFoundError, SessionStore
 from dlg.sources.excel import ExcelItemSource, ItemSourceError
@@ -62,6 +63,8 @@ class SettingsResponse(BaseModel):
         output_dir: Folder for generated Word documents.
         sessions_dir: The user's session library folder.
         global_sessions_dir: Shared session library folder ('' if not set).
+        table_layout_file: Workbook with the Word layout sheet ('' = the item database).
+        table_layout_sheet: Name of the Word layout sheet.
         config_file: Configuration file the settings are saved to ('' if none).
     """
 
@@ -71,6 +74,8 @@ class SettingsResponse(BaseModel):
     output_dir: str
     sessions_dir: str
     global_sessions_dir: str
+    table_layout_file: str
+    table_layout_sheet: str
     config_file: str
 
 
@@ -86,6 +91,9 @@ class SettingsUpdate(BaseModel):
         sessions_dir: New user session library (absolute path to an existing folder).
         global_sessions_dir: New shared session library (existing folder, or
             '' to unset it).
+        table_layout_file: New layout workbook (existing .xlsx, or '' for the
+            item database).
+        table_layout_sheet: New layout sheet name (non-empty).
     """
 
     items_file: str | None = None
@@ -94,6 +102,8 @@ class SettingsUpdate(BaseModel):
     output_dir: str | None = None
     sessions_dir: str | None = None
     global_sessions_dir: str | None = None
+    table_layout_file: str | None = None
+    table_layout_sheet: str | None = Field(default=None, max_length=100)
 
 
 class InfoResponse(BaseModel):
@@ -112,14 +122,20 @@ class ItemsResponse(BaseModel):
     Attributes:
         source: Name of the item database.
         id_column: Name of the column holding the unique item IDs.
-        columns: Shown columns, in database order.
+        columns: Shown columns, in database order (then input columns that
+            only the layout sheet adds).
         items: All selectable items.
+        layout: Where the Word table layout comes from (e.g.
+            ``items.xlsx › Word layout``); '' for the automatic table.
+        word_columns: Columns of the Word table, in order.
     """
 
     source: str
     id_column: str
     columns: list[Column]
     items: list[Item]
+    layout: str = ""
+    word_columns: list[str] = Field(default_factory=list)
 
 
 class SessionSummary(BaseModel):
@@ -327,25 +343,46 @@ def create_app(
 
     def source() -> ExcelItemSource:
         """Return the item source for the *current* settings (they can change at runtime)."""
-        return ExcelItemSource(cfg.items_file, id_column=cfg.id_column)
+        # The layout sheet never holds the data when it lives in the database workbook.
+        skip = cfg.table_layout_sheet if cfg.table_layout_file is None else None
+        return ExcelItemSource(cfg.items_file, id_column=cfg.id_column, skip_sheet=skip)
+
+    def load_data() -> tuple[ItemTable, TableLayout | None]:
+        """Read the item database and the Word table layout (fresh each call).
+
+        Returns:
+            The table (with the layout's columns merged in) and the layout,
+            or None when there is no layout sheet.
+
+        Raises:
+            HTTPException: 500 if the database or the layout sheet cannot be used.
+        """
+        try:
+            table = source().load()
+            if cfg.table_layout_file is None:
+                layout = load_layout(cfg.items_file, cfg.table_layout_sheet, required=False)
+            else:
+                layout = load_layout(cfg.table_layout_file, cfg.table_layout_sheet, required=True)
+            return (apply_layout(table, layout) if layout else table), layout
+        except ItemSourceError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        except LayoutError as exc:
+            raise HTTPException(status_code=500, detail=f"Word table layout: {exc}") from exc
 
     def store() -> SessionStore:
         """Return the session store for the *current* user library (it can change at runtime)."""
         return SessionStore(cfg.sessions_dir)
 
     def load_table() -> ItemTable:
-        """Read the item database (fresh each call so file edits show up).
+        """Read the item database with the layout's columns (fresh each call so file edits show up).
 
         Returns:
             Columns and items.
 
         Raises:
-            HTTPException: 500 if the database is missing or malformed.
+            HTTPException: 500 if the database or the layout sheet cannot be used.
         """
-        try:
-            return source().load()
-        except ItemSourceError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return load_data()[0]
 
     @app.get("/api/info", response_model=InfoResponse)
     def get_info() -> InfoResponse:
@@ -355,9 +392,11 @@ def create_app(
     @app.get("/api/items", response_model=ItemsResponse)
     def get_items() -> ItemsResponse:
         """Return all selectable items."""
-        table = load_table()
+        table, layout = load_data()
         return ItemsResponse(
-            source=source().name, id_column=table.id_column, columns=table.columns, items=table.items
+            source=source().name, id_column=table.id_column, columns=table.columns, items=table.items,
+            layout=layout.source if layout else "",
+            word_columns=layout.column_names if layout else table.column_names,
         )
 
     @app.get("/api/sessions", response_model=list[SessionSummary])
@@ -488,7 +527,7 @@ def create_app(
             raise HTTPException(status_code=400, detail="No items selected.")
         name = output_file_name(req.file_name)
         target = cfg.output_dir / name
-        table = load_table()
+        table, layout = load_data()
         wanted = set(req.selected_ids)
         unknown = sorted(wanted - {i.id for i in table.items})
         if unknown:
@@ -498,7 +537,7 @@ def create_app(
         items = [i for i in table.with_user_values(req.user_values) if i.id in wanted]
         try:
             generate_declared_list(
-                cfg.template_file, table.column_names, items, target, req.configuration_name.strip()
+                cfg.template_file, table.column_names, items, target, req.configuration_name.strip(), layout
             )
         except OutputLockedError as exc:
             raise HTTPException(status_code=423, detail=str(exc)) from exc
@@ -515,6 +554,8 @@ def create_app(
             output_dir=str(cfg.output_dir),
             sessions_dir=str(cfg.sessions_dir),
             global_sessions_dir=str(cfg.global_sessions_dir) if cfg.global_sessions_dir else "",
+            table_layout_file=str(cfg.table_layout_file) if cfg.table_layout_file else "",
+            table_layout_sheet=cfg.table_layout_sheet,
             config_file=str(config_path) if config_path else "",
         )
 
@@ -533,6 +574,7 @@ def create_app(
         items_file, id_column, output_dir = cfg.items_file, cfg.id_column, cfg.output_dir
         template_file = cfg.template_file
         sessions_dir, global_sessions_dir = cfg.sessions_dir, cfg.global_sessions_dir
+        table_layout_file, table_layout_sheet = cfg.table_layout_file, cfg.table_layout_sheet
         if req.items_file is not None:
             items_file = _checked_path(req.items_file, "Item database")
             if items_file.suffix.lower() != ".xlsx":
@@ -572,9 +614,26 @@ def create_app(
                 if not global_sessions_dir.is_dir():
                     raise HTTPException(
                         status_code=400, detail=f"Shared library folder not found: {global_sessions_dir}")
-        names = ("items_file", "id_column", "template_file", "output_dir", "sessions_dir", "global_sessions_dir")
+        current_layout = str(cfg.table_layout_file) if cfg.table_layout_file else ""
+        if req.table_layout_file is not None and req.table_layout_file.strip() != current_layout:
+            if not req.table_layout_file.strip():
+                table_layout_file = None  # back to the sheet inside the item database
+            else:
+                table_layout_file = _checked_path(req.table_layout_file, "Table layout file")
+                if table_layout_file.suffix.lower() != ".xlsx":
+                    raise HTTPException(
+                        status_code=400, detail=f"Table layout file must be an .xlsx file: {table_layout_file}")
+                if not table_layout_file.is_file():
+                    raise HTTPException(status_code=400, detail=f"Table layout file not found: {table_layout_file}")
+        if req.table_layout_sheet is not None:
+            table_layout_sheet = req.table_layout_sheet.strip()
+            if not table_layout_sheet:
+                raise HTTPException(status_code=400, detail="Layout sheet: enter the name of the sheet.")
+        names = ("items_file", "id_column", "template_file", "output_dir", "sessions_dir", "global_sessions_dir",
+                 "table_layout_file", "table_layout_sheet")
         old = {n: getattr(cfg, n) for n in names}
-        new = (items_file, id_column, template_file, output_dir, sessions_dir, global_sessions_dir)
+        new = (items_file, id_column, template_file, output_dir, sessions_dir, global_sessions_dir,
+               table_layout_file, table_layout_sheet)
         for n, value in zip(names, new):
             setattr(cfg, n, value)
         if config_path is not None:
