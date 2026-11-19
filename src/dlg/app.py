@@ -15,6 +15,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, R
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from dlg import get_version
 from dlg.config import Config, ConfigError, save_config
 from dlg.docgen import DocgenError, OutputLockedError, generate_declared_list
 from dlg.filebrowser import BrowseError, BrowseNotFoundError, Listing, list_folder
@@ -76,6 +77,16 @@ class SettingsUpdate(BaseModel):
     items_file: str | None = None
     id_column: str | None = Field(default=None, max_length=200)
     output_dir: str | None = None
+
+
+class InfoResponse(BaseModel):
+    """Response of ``GET /api/info``.
+
+    Attributes:
+        version: Application version from ``pyproject.toml``.
+    """
+
+    version: str
 
 
 class ItemsResponse(BaseModel):
@@ -232,7 +243,21 @@ def create_app(
     """
     cfg = settings or Config()
     store = SessionStore(cfg.sessions_dir)
-    app = FastAPI(title="Declared List Generator")
+    app = FastAPI(title="Declared List Generator", version=get_version())
+
+    @app.middleware("http")
+    async def no_cache(request: Request, call_next: Callable) -> Response:
+        """Make the browser revalidate every response before using a cached copy.
+
+        Without a ``Cache-Control`` header browsers cache the GUI files
+        heuristically, so after an update the old ``app.js`` kept running until
+        the user pressed F5 (seen on Windows). ``no-cache`` still allows the
+        cache, but only after a cheap conditional request (304 when unchanged,
+        thanks to the ETag/Last-Modified that ``StaticFiles`` sends).
+        """
+        response = await call_next(request)
+        response.headers.setdefault("Cache-Control", "no-cache")
+        return response
 
     def source() -> ExcelItemSource:
         """Return the item source for the *current* settings (they can change at runtime)."""
@@ -251,6 +276,11 @@ def create_app(
             return source().load()
         except ItemSourceError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.get("/api/info", response_model=InfoResponse)
+    def get_info() -> InfoResponse:
+        """Return facts about the running application (shown in the GUI header)."""
+        return InfoResponse(version=app.version)
 
     @app.get("/api/items", response_model=ItemsResponse)
     def get_items() -> ItemsResponse:

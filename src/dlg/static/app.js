@@ -44,7 +44,7 @@ const el = {
   browseCancel: $('browse-cancel'), browseSelect: $('browse-select'),
   clear: $('clear-btn'), count: $('count'), exportBtn: $('export-btn'),
   selectVisible: $('select-visible'), sessionName: $('session-name'), configName: $('config-name'),
-  current: $('current'), fileName: $('file-name'), exitBtn: $('exit-btn'), stopped: $('stopped'),
+  current: $('current'), fileName: $('file-name'), fileNameReset: $('file-name-reset'), version: $('version'), exitBtn: $('exit-btn'), stopped: $('stopped'),
   sessionList: $('session-list'), save: $('save-btn'), load: $('load-btn'), del: $('delete-btn'),
 };
 
@@ -455,8 +455,7 @@ async function loadSession() {
     state.dirty = false;
     el.sessionName.value = session.name;
     el.configName.value = session.configuration_name;
-    state.fileNameEdited = false; // a loaded session brings its own name
-    suggestName();
+    useSuggestedName(); // a loaded session brings its own name
     renderCurrent();
     renderRows();
     if (unknown.length) {
@@ -491,6 +490,13 @@ async function deleteSession() {
 /** Propose a file name from the configuration/session name unless the user typed one. */
 function suggestName() {
   if (!state.fileNameEdited) el.fileName.value = suggestFileName(el.configName.value, el.sessionName.value);
+  el.fileNameReset.disabled = !state.fileNameEdited;
+}
+
+/** Go back to following the configuration/session name (Reset name, session load, emptied field). */
+function useSuggestedName() {
+  state.fileNameEdited = false;
+  suggestName();
 }
 
 /**
@@ -499,6 +505,7 @@ function suggestName() {
  */
 async function exportDocument() {
   el.exportBtn.disabled = true;
+  if (!el.fileName.value.trim()) useSuggestedName(); // e.g. Enter pressed in an emptied field
   const body = {
     selected_ids: [...state.selected],
     user_values: state.userValues,
@@ -790,10 +797,14 @@ function bindEvents() {
   el.configName.addEventListener('input', () => { state.dirty = true; suggestName(); });
   el.sessionName.addEventListener('input', suggestName);
   el.fileName.addEventListener('input', () => {
-    // An emptied field goes back to following the configuration/session name.
-    state.fileNameEdited = el.fileName.value.trim() !== '';
-    if (!state.fileNameEdited) suggestName();
+    // Any typing, including deleting the last character, keeps the user's text. Refilling the
+    // suggestion while the field is empty made it snap back to the old name mid-edit (Windows test).
+    state.fileNameEdited = true;
+    el.fileNameReset.disabled = false;
   });
+  // Only a field that is *left* empty goes back to following the configuration/session name.
+  el.fileName.addEventListener('blur', () => { if (!el.fileName.value.trim()) useSuggestedName(); });
+  el.fileNameReset.addEventListener('click', () => { useSuggestedName(); el.fileName.focus(); });
   el.fileName.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !el.exportBtn.disabled) exportDocument(); });
   window.addEventListener('beforeunload', (e) => { if (state.dirty) e.preventDefault(); });
 }
@@ -819,10 +830,21 @@ async function loadItems() {
   return unknown;
 }
 
+/** Show the app version in the header, so the user can see which version the browser runs. */
+async function showVersion() {
+  try {
+    const info = await api('/api/info');
+    el.version.textContent = `v${info.version}`;
+  } catch {
+    // Cosmetic only; errors from the real requests are reported by them.
+  }
+}
+
 /** Load items and sessions, then show the page. */
 async function init() {
   bindEvents();
   suggestName();
+  showVersion(); // not awaited: the header text is cosmetic
   // Settings first and independently: if the database path is wrong, they are how to fix it.
   await loadSettings();
   try {

@@ -11,6 +11,7 @@
 <body>
   <header class="app-header">
     <h1>Declared List Generator</h1>
+    <span id="version" class="muted version"></span>
     <span id="source" class="muted"></span>
     <span id="current" class="current" aria-live="polite" hidden></span>
     <button id="exit-btn" type="button" class="exit-btn" title="Stop the tool">Exit</button>
@@ -83,6 +84,7 @@
         <label for="file-name">File name</label>
         <input id="file-name" type="text" maxlength="200" spellcheck="false" class="file-name">
         <span class="muted">.docx</span>
+        <button id="file-name-reset" type="button" title="Use the name suggested from the configuration or session name" disabled>Reset name</button>
         <button id="export-btn" type="button" class="primary">Export Word document</button>
       </div>
 

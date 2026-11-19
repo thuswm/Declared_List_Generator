@@ -47,6 +47,7 @@ input.wide { flex: 1 1 24rem; max-width: 40rem; }
 .current[hidden] + .exit-btn { margin-left: auto; }
 .stopped { margin: 2rem 1.25rem; }
 .muted { color: var(--muted); }
+.version { font-size: .85rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .inline { display: inline-flex; align-items: center; gap: .35rem; }
 

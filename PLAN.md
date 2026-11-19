@@ -5,11 +5,11 @@ Keep this file short (about one screen). Details live elsewhere:
 
 ## Status
 - **Released:** `v0.2.0` (2026-11-18), tested on Windows by the user 2026-11-19: works; findings in [backlog](docs/backlog.md). Plan: [docs/archive/release-0.2.0-plan.md](docs/archive/release-0.2.0-plan.md). Earlier: [v0.1.0](docs/archive/release-0.1.0-plan.md).
-- **Next step:** step 1 (in progress).
+- **Branch:** `release/0.3.0`. **Next step:** step 2 (template file in Settings).
 
 ## Release 0.3.0 – plan (approved 2026-11-19)
 Steps (each: implement → test → tick here → log decisions in `docs/decisions.md`). Design decisions of 2026-11-19: [decisions](docs/decisions.md).
-1. [ ] **Windows test fixes:** `Cache-Control: no-cache` on the GUI files (no F5 needed after an update) and app version in the header; file-name field no longer snaps back to the old name when emptied (suggestion only refilled when the field is left empty, plus a "reset to suggestion" button); `output/` git-ignored.
+1. [x] **Windows test fixes:** `Cache-Control: no-cache` on the GUI files (no F5 needed after an update) and app version in the header; file-name field no longer snaps back to the old name when emptied (suggestion only refilled when the field is left empty, plus a "reset to suggestion" button); `output/` git-ignored.
 2. [ ] **Template file in Settings:** choose the Word template with Browse like the other paths.
 3. [ ] **Session library browser:** table of all sessions in a folder (name, configuration, items, modified, file) with search and sorting. Folder switch: user library (`sessions_dir`), global library (new setting `global_sessions_dir`), or any folder picked with Browse. Load/delete from there; replaces the "Saved" drop-down.
 4. [ ] **Open session files from anywhere:** load a session file from any folder (via the browser in step 3 or the file dialog); saving goes to the user library unless chosen otherwise.

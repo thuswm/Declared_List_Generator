@@ -44,3 +44,26 @@ def test_javascript_logic_unit_tests() -> None:
         ["node", "--test", "tests/js"], cwd=ROOT, capture_output=True, text=True, timeout=60
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_responses_tell_the_browser_to_revalidate(tmp_path: Path) -> None:
+    """GUI files and API answers carry ``Cache-Control: no-cache``.
+
+    Without it browsers kept running an old ``app.js`` after an update until F5.
+    """
+    client = TestClient(create_app(Config(sessions_dir=tmp_path)))
+    for path in ("/", "/app.js", "/logic.js", "/style.css", "/api/info"):
+        assert client.get(path).headers["cache-control"] == "no-cache", path
+
+
+def test_static_files_still_answer_conditional_requests(tmp_path: Path) -> None:
+    """Revalidation stays cheap: an unchanged file answers 304."""
+    client = TestClient(create_app(Config(sessions_dir=tmp_path)))
+    etag = client.get("/app.js").headers["etag"]
+    assert client.get("/app.js", headers={"If-None-Match": etag}).status_code == 304
+
+
+def test_header_has_version_and_file_name_has_reset(tmp_path: Path) -> None:
+    """The page has the elements app.js fills/binds for step 1 of 0.3.0."""
+    html = TestClient(create_app(Config(sessions_dir=tmp_path))).get("/").text
+    assert 'id="version"' in html and 'id="file-name-reset"' in html

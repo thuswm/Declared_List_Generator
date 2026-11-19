@@ -3,6 +3,13 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-19 – Windows test fixes (0.3.0 step 1)
+- **Caching:** an HTTP middleware sets `Cache-Control: no-cache` on every response (GUI files and API) unless one is already set. The browser may still cache, but revalidates first; `StaticFiles` sends ETag/Last-Modified, so an unchanged file costs only a 304. Before, browsers cached `app.js`/`logic.js` heuristically and kept the old version after an update.
+- **Version:** `dlg.get_version()` reads `pyproject.toml` of the checkout first, then the installed metadata. Gotcha: with the editable install (`pip install -e`), the metadata keeps the version from install time and goes stale after a `git pull`. A `pyproject.toml` of another project is ignored (name must be `dlg`). `GET /api/info` → `{version}`; shown as `vX.Y.Z` in the header (not awaited, cosmetic).
+- **File-name field:** typing, including deleting the last character, keeps the user's text. Before, an emptied field was refilled with the suggestion immediately, so the old name snapped back mid-edit. Now the suggestion only returns when the field is *left* empty (blur), on Reset name (disabled while following the suggestion), on session load, or when exporting with an empty field.
+- `output/` (default export folder) is git-ignored.
+- Checked in headless Chromium with real Backspace key events (scratch script over DevTools protocol).
+
 ## 2026-11-19 – 0.3.0 planning decisions (user, not yet implemented)
 - **Word table layout (step 5) is drawn in Excel, not in the Word template:** header rows hold free text; merged cells (across and down) become merged cells in Word. The last row in use is the mapping row: each cell names a data-sheet column, data rows follow beneath in that order.
 - Default location: sheet "Word layout" inside the database workbook; a "Table layout" setting can point to another `.xlsx` file and sheet.
