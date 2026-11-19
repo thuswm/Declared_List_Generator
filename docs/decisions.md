@@ -3,6 +3,12 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-19 – Open document / folder after export (0.3.0 step 7)
+- `POST /api/open {file_name, folder}` (local-only, 204). It takes a **plain file name, not a path**: it must equal `Path(name).name`, contain no `/` or `\`, end in `.docx` and exist in the *current* output folder (400/404 otherwise). The browser can therefore never make the server open another file or start a program.
+- `dlg/opener.py` `open_path(path, folder)`: on Windows `os.startfile` for the document and `explorer "/select,<path>"` for the folder (file highlighted; Explorer's exit code is meaningless, so it is not checked); on macOS `open` / `open -R`; elsewhere a detached, silent `xdg-open` (file or parent folder). `OSError` (e.g. no xdg-open) → `OpenError` → 500 with message.
+- The opener is injected into `create_app(opener=...)`, so tests and the browser check record calls instead of opening programs on the desktop. The real commands are only tested by mocking `subprocess.Popen`/`os.startfile`: **still to check on Windows with real Word/Explorer.**
+- GUI: "Open document" / "Open folder" stay hidden until the first successful export, then act on that export's file name.
+
 ## 2026-11-19 – Table font size (0.3.0 step 6)
 - Setting `table_font_size` (pt, a TOML number; `0` = keep the template's size), valid range 4–72 in half-point steps (`config.font_size_problem`, shared by the config loader and `PUT /api/settings`). GUI: a number field in Settings; empty = 0. The GUI refuses `validity.badInput` itself, because `Number('')`/NaN would otherwise turn a typo into "template font" (and `JSON.stringify(NaN)` is `null`, which the API reads as "unchanged").
 - `docgen._set_font_size` sets the size on every run **and every paragraph mark** (`w:pPr/w:rPr/w:sz` + `szCs`). Word sizes an empty cell by its paragraph mark, so empty cells would otherwise keep the template size and make rows taller. It walks `w:tc` elements so merged cells are handled once. `rPr` is appended to `pPr` after `jc` (schema order; only `sectPr`/`pPrChange` may follow, never in cells).

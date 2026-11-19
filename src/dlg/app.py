@@ -21,6 +21,7 @@ from dlg.docgen import DocgenError, OutputLockedError, check_template, generate_
 from dlg.filebrowser import BrowseError, BrowseNotFoundError, Listing, list_folder
 from dlg.layout import LayoutError, TableLayout, apply_layout, load_layout
 from dlg.models import Column, Item, ItemTable, Session
+from dlg.opener import OpenError, Opener, open_path
 from dlg.sessions import WINDOWS_RESERVED_NAMES, SessionError, SessionNotFoundError, SessionStore
 from dlg.sources.excel import ExcelItemSource, ItemSourceError
 
@@ -199,6 +200,20 @@ class LibraryResponse(BaseModel):
     skipped: list[SkippedFile]
 
 
+class OpenRequest(BaseModel):
+    """Body of ``POST /api/open``.
+
+    Attributes:
+        file_name: Name of an exported document in the output folder (as
+            returned by the export); not a path.
+        folder: True to show the output folder (with the file selected where
+            the system supports it) instead of opening the document.
+    """
+
+    file_name: str = Field(min_length=1, max_length=260)
+    folder: bool = False
+
+
 class SaveSessionRequest(BaseModel):
     """Body of ``POST /api/sessions``.
 
@@ -315,6 +330,7 @@ def create_app(
     settings: Config | None = None,
     config_path: Path | None = None,
     on_shutdown: Callable[[], None] | None = None,
+    opener: Opener = open_path,
 ) -> FastAPI:
     """Build the FastAPI application.
 
@@ -325,6 +341,8 @@ def create_app(
             None keeps changes in memory only (used by tests).
         on_shutdown: Called to stop the server when the user clicks Exit;
             None disables the Exit endpoint (no server to stop).
+        opener: Opens a document or its folder on the desktop (injectable so
+            tests do not start real programs).
 
     Returns:
         The configured application.
@@ -550,6 +568,26 @@ def create_app(
         except DocgenError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return ExportResponse(path=str(target), file_name=name, count=len(items))
+
+    @app.post("/api/open", status_code=204, dependencies=[Depends(require_local)])
+    def open_document(req: OpenRequest) -> Response:
+        """Open an exported document in Word, or show it in its folder.
+
+        Only a plain file name is accepted and it must be an existing ``.docx``
+        in the output folder, so the browser can never make the server open
+        some other file or program.
+        """
+        name = req.file_name
+        if name != Path(name).name or "/" in name or "\\" in name or not name.lower().endswith(".docx"):
+            raise HTTPException(status_code=400, detail=f"Not a document name: {name}")
+        path = cfg.output_dir / name
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail=f"{name} is no longer in {cfg.output_dir}.")
+        try:
+            opener(path, req.folder)
+        except OpenError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return Response(status_code=204)
 
     def current_settings() -> SettingsResponse:
         """Return the GUI-editable settings."""

@@ -234,6 +234,10 @@ another `.xlsx` and sheet. Example: `data/layout_example.xlsx` (written by
 
 ## Behaviour worth knowing
 
+- After an export, **Open document** opens it in the program registered for
+  `.docx` (normally Word) and **Open folder** shows it in its folder (on
+  Windows with the file selected). Both only work on the computer running the
+  tool.
 - Export rows follow **database order**, not the order you clicked.
 - Loading a session whose items are no longer in the database skips them and
   lists their IDs in a warning. They are dropped if you save again.

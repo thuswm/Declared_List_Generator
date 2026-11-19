@@ -29,6 +29,7 @@ const state = {
   userValues: {}, // values typed in user-input columns: {itemId: {column: value}}
   savedDatabase: '', // database, ID column and layout settings as last saved (detects a column change)
   fileNameEdited: false, // the user typed a file name; stop suggesting one
+  exportedFile: '', // file name of the last export (for Open document / Open folder)
   dirty: false, // selection changed since last load/save
 };
 
@@ -50,6 +51,7 @@ const el = {
   browseCancel: $('browse-cancel'), browseSelect: $('browse-select'),
   clear: $('clear-btn'), count: $('count'), exportBtn: $('export-btn'),
   selectVisible: $('select-visible'), sessionName: $('session-name'), configName: $('config-name'),
+  openDoc: $('open-doc-btn'), openFolder: $('open-folder-btn'),
   current: $('current'), fileName: $('file-name'), fileNameReset: $('file-name-reset'), version: $('version'), exitBtn: $('exit-btn'), stopped: $('stopped'),
   save: $('save-btn'), saveTo: $('save-to-btn'), libraryBtn: $('library-btn'), library: $('library-dialog'),
   libraryFolder: $('library-folder'), libraryChange: $('library-change'), librarySearch: $('library-search'),
@@ -798,10 +800,29 @@ async function exportDocument() {
       result = await sendJson('/api/export', 'POST', { ...body, overwrite: true });
     }
     showStatus(`Saved ${result.count} item${result.count === 1 ? '' : 's'} to ${result.path}`);
+    state.exportedFile = result.file_name;
+    el.openDoc.title = `Open ${result.file_name} in Word`;
+    el.openFolder.title = `Show ${result.file_name} in its folder`;
+    el.openDoc.hidden = false;
+    el.openFolder.hidden = false;
   } catch (err) {
     showStatus(err.message, 'error');
   } finally {
     updateSummary();
+  }
+}
+
+/**
+ * Open the last exported document, or show it in its folder.
+ * @param {boolean} folder True for the folder.
+ */
+async function openExported(folder) {
+  if (!state.exportedFile) return;
+  try {
+    await sendJson('/api/open', 'POST', { file_name: state.exportedFile, folder });
+    showStatus(folder ? `Opened the folder of ${state.exportedFile}.` : `Opening ${state.exportedFile}…`);
+  } catch (err) {
+    showStatus(err.message, 'error');
   }
 }
 
@@ -1092,6 +1113,8 @@ function bindEvents() {
   el.save.addEventListener('click', () => saveSession());
   el.saveTo.addEventListener('click', saveSessionTo);
   el.exportBtn.addEventListener('click', exportDocument);
+  el.openDoc.addEventListener('click', () => openExported(false));
+  el.openFolder.addEventListener('click', () => openExported(true));
   el.sessionName.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveSession(); });
   el.configName.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveSession(); });
   el.configName.addEventListener('input', () => { state.dirty = true; suggestName(); });
