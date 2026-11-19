@@ -37,6 +37,7 @@ const el = {
   panelQuery: $('filter-query'), panelAll: $('filter-all'), panelValues: $('filter-values'),
   panelOk: $('filter-ok'), panelCancel: $('filter-cancel'), panelClear: $('filter-clear'),
   settings: $('settings'), itemsFile: $('items-file'), idColumn: $('id-column'), outputDir: $('output-dir'),
+  templateFile: $('template-file'), templateBrowse: $('template-browse'),
   itemsBrowse: $('items-browse'), outputBrowse: $('output-browse'), settingsSave: $('settings-save'),
   configFile: $('config-file'), browse: $('browse-dialog'), browseTitle: $('browse-title'),
   browseRoots: $('browse-roots'), browseUp: $('browse-up'), browsePath: $('browse-path'), browseGo: $('browse-go'),
@@ -535,11 +536,12 @@ async function exportDocument() {
 
 /**
  * Put settings into the panel and remember which database they describe.
- * @param {{items_file:string,id_column:string,output_dir:string}} cfg Settings from the server.
+ * @param {{items_file:string,id_column:string,template_file:string,output_dir:string}} cfg Settings from the server.
  */
 function showSettings(cfg) {
   el.itemsFile.value = cfg.items_file;
   el.idColumn.value = cfg.id_column;
+  el.templateFile.value = cfg.template_file;
   el.outputDir.value = cfg.output_dir;
   state.savedDatabase = `${cfg.items_file}\n${cfg.id_column}`;
 }
@@ -563,6 +565,7 @@ async function saveSettings() {
     const cfg = await sendJson('/api/settings', 'PUT', {
       items_file: el.itemsFile.value.trim(),
       id_column: el.idColumn.value.trim(),
+      template_file: el.templateFile.value.trim(),
       output_dir: el.outputDir.value.trim(),
     });
     showSettings(cfg);
@@ -596,15 +599,16 @@ async function saveSettings() {
 // ---- Browse dialog -------------------------------------------------------
 
 /** State of the open browse dialog. */
-const browse = { files: true, path: '', chosen: '', onChoose: null };
+const browse = { files: true, ext: '.xlsx', path: '', chosen: '', onChoose: null };
 
 /**
  * Open the browse dialog.
- * @param {{title:string, files:boolean, start:string, onChoose:(path:string)=>void}} opts
- *   `files`: choose an .xlsx file (true) or a folder (false); `start`: folder or file to open at.
+ * @param {{title:string, files:boolean, ext?:string, start:string, onChoose:(path:string)=>void}} opts
+ *   `files`: choose a file (true) or a folder (false); `ext`: extension of the files to list
+ *   (default `.xlsx`); `start`: folder or file to open at.
  */
-function openBrowse({ title, files, start, onChoose }) {
-  Object.assign(browse, { files, chosen: '', onChoose });
+function openBrowse({ title, files, ext = '.xlsx', start, onChoose }) {
+  Object.assign(browse, { files, ext, chosen: '', onChoose });
   el.browseTitle.textContent = title;
   el.browseSelect.textContent = files ? 'Select file' : 'Select this folder';
   el.browse.showModal();
@@ -618,7 +622,7 @@ function openBrowse({ title, files, start, onChoose }) {
 async function navigate(path) {
   el.browseError.hidden = true;
   try {
-    const q = new URLSearchParams({ path, files: String(browse.files) });
+    const q = new URLSearchParams({ path, files: String(browse.files), ext: browse.ext });
     const listing = await api(`/api/fs?${q}`);
     browse.path = listing.path;
     // Keep the chosen file when (re)opening at it; otherwise reset the choice.
@@ -658,7 +662,7 @@ function renderBrowseList(listing) {
     frag.append(li);
   }
   if (items.length === 0) {
-    frag.append(make('li', browse.files ? 'No folders or .xlsx files here.' : 'No sub-folders here.', 'empty'));
+    frag.append(make('li', browse.files ? `No folders or ${browse.ext} files here.` : 'No sub-folders here.', 'empty'));
   }
   el.browseList.replaceChildren(frag);
 }
@@ -666,7 +670,7 @@ function renderBrowseList(listing) {
 /** Show what "Select" will pick and enable it accordingly. */
 function updateBrowseChoice() {
   const pick = browse.files ? browse.chosen : browse.path;
-  el.browseChoice.textContent = pick || (browse.files ? 'Choose an .xlsx file' : '');
+  el.browseChoice.textContent = pick || (browse.files ? `Choose a ${browse.ext} file` : '');
   el.browseSelect.disabled = !pick;
 }
 
@@ -684,6 +688,10 @@ function bindSettingsEvents() {
   el.itemsBrowse.addEventListener('click', () => openBrowse({
     title: 'Choose the item database (.xlsx)', files: true, start: el.itemsFile.value.trim(),
     onChoose: (p) => { el.itemsFile.value = p; el.settingsSave.focus(); },
+  }));
+  el.templateBrowse.addEventListener('click', () => openBrowse({
+    title: 'Choose the Word template (.docx)', files: true, ext: '.docx', start: el.templateFile.value.trim(),
+    onChoose: (p) => { el.templateFile.value = p; el.settingsSave.focus(); },
   }));
   el.outputBrowse.addEventListener('click', () => openBrowse({
     title: 'Choose the output folder', files: false, start: el.outputDir.value.trim(),

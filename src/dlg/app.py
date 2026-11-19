@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from dlg import get_version
 from dlg.config import Config, ConfigError, save_config
-from dlg.docgen import DocgenError, OutputLockedError, generate_declared_list
+from dlg.docgen import DocgenError, OutputLockedError, check_template, generate_declared_list
 from dlg.filebrowser import BrowseError, BrowseNotFoundError, Listing, list_folder
 from dlg.models import Column, Item, ItemTable, Session
 from dlg.sessions import WINDOWS_RESERVED_NAMES, SessionError, SessionNotFoundError, SessionStore
@@ -27,6 +27,9 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 #: Characters Windows does not allow in file names (checked on every platform so a
 #: name that works on Linux also works on Windows).
 _BAD_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+#: File types the browse dialog can list (item database, Word template).
+BROWSE_EXTENSIONS = frozenset({".xlsx", ".docx"})
 
 #: Client addresses treated as "this computer" for the local-only endpoints.
 LOCAL_CLIENTS = frozenset({"127.0.0.1", "::1", "localhost"})
@@ -55,12 +58,14 @@ class SettingsResponse(BaseModel):
     Attributes:
         items_file: Excel item database.
         id_column: Header of the database column holding the unique item IDs.
+        template_file: Word template with the ``{{DECLARED_LIST}}`` placeholder.
         output_dir: Folder for generated Word documents.
         config_file: Configuration file the settings are saved to ('' if none).
     """
 
     items_file: str
     id_column: str
+    template_file: str
     output_dir: str
     config_file: str
 
@@ -71,11 +76,14 @@ class SettingsUpdate(BaseModel):
     Attributes:
         items_file: New Excel item database (absolute path to an existing .xlsx).
         id_column: New ID column header (non-empty).
+        template_file: New Word template (absolute path to an existing .docx
+            containing the placeholder).
         output_dir: New output folder (absolute path to an existing folder).
     """
 
     items_file: str | None = None
     id_column: str | None = Field(default=None, max_length=200)
+    template_file: str | None = None
     output_dir: str | None = None
 
 
@@ -384,23 +392,25 @@ def create_app(
         return SettingsResponse(
             items_file=str(cfg.items_file),
             id_column=cfg.id_column,
+            template_file=str(cfg.template_file),
             output_dir=str(cfg.output_dir),
             config_file=str(config_path) if config_path else "",
         )
 
     @app.get("/api/settings", response_model=SettingsResponse, dependencies=[Depends(require_local)])
     def get_settings() -> SettingsResponse:
-        """Return the item database, ID column and output folder."""
+        """Return the item database, ID column, Word template and output folder."""
         return current_settings()
 
     @app.put("/api/settings", response_model=SettingsResponse, dependencies=[Depends(require_local)])
     def put_settings(req: SettingsUpdate) -> SettingsResponse:
-        """Change the item database, ID column and/or output folder and save them to the config file.
+        """Change the item database, ID column, Word template and/or output folder and save them to the config file.
 
         Everything is validated before anything changes, so a bad value never
         leaves the settings half-updated.
         """
         items_file, id_column, output_dir = cfg.items_file, cfg.id_column, cfg.output_dir
+        template_file = cfg.template_file
         if req.items_file is not None:
             items_file = _checked_path(req.items_file, "Item database")
             if items_file.suffix.lower() != ".xlsx":
@@ -411,32 +421,47 @@ def create_app(
             id_column = req.id_column.strip()
             if not id_column:
                 raise HTTPException(status_code=400, detail="ID column: enter the header of the column with the item IDs.")
+        # Only a *changed* template is checked, so an unchanged (e.g. since deleted) one
+        # does not block saving the other settings; export reports it then.
+        if req.template_file is not None and req.template_file.strip() != str(cfg.template_file):
+            template_file = _checked_path(req.template_file, "Word template")
+            if template_file.suffix.lower() != ".docx":
+                raise HTTPException(status_code=400, detail=f"Word template must be a .docx file: {template_file}")
+            try:
+                check_template(template_file)
+            except DocgenError as exc:
+                raise HTTPException(status_code=400, detail=f"Word template: {exc}") from exc
         # Only a *changed* folder must exist: the default output folder is created on first export,
         # and re-sending an unchanged value must not block saving the other settings.
         if req.output_dir is not None and req.output_dir.strip() != str(cfg.output_dir):
             output_dir = _checked_path(req.output_dir, "Output folder")
             if not output_dir.is_dir():
                 raise HTTPException(status_code=400, detail=f"Output folder not found: {output_dir}")
-        old = (cfg.items_file, cfg.id_column, cfg.output_dir)
-        cfg.items_file, cfg.id_column, cfg.output_dir = items_file, id_column, output_dir
+        old = (cfg.items_file, cfg.id_column, cfg.template_file, cfg.output_dir)
+        cfg.items_file, cfg.id_column, cfg.template_file, cfg.output_dir = (
+            items_file, id_column, template_file, output_dir)
         if config_path is not None:
             try:
                 save_config(cfg, config_path)
             except ConfigError as exc:
-                cfg.items_file, cfg.id_column, cfg.output_dir = old  # keep memory and file in step
+                cfg.items_file, cfg.id_column, cfg.template_file, cfg.output_dir = old  # keep memory and file in step
                 raise HTTPException(status_code=500, detail=str(exc)) from exc
         return current_settings()
 
     @app.get("/api/fs", dependencies=[Depends(require_local)])
-    def browse(path: str = "", files: bool = True) -> Listing:
+    def browse(path: str = "", files: bool = True, ext: str = ".xlsx") -> Listing:
         """List a folder for the browse dialog.
 
         Args:
             path: Folder (or a file inside it); empty for the home folder.
-            files: Include .xlsx files (False when choosing a folder).
+            files: Include files (False when choosing a folder).
+            ext: Extension of the files to list (one of ``BROWSE_EXTENSIONS``).
         """
+        ext = ext.lower()
+        if ext not in BROWSE_EXTENSIONS:
+            raise HTTPException(status_code=400, detail=f"Cannot browse for {ext} files.")
         try:
-            return list_folder(path or None, (".xlsx",) if files else ())
+            return list_folder(path or None, (ext,) if files else ())
         except BrowseNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except BrowseError as exc:

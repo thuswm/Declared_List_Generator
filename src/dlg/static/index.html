@@ -39,6 +39,12 @@
                placeholder="Header of the column with unique item IDs">
       </div>
       <div class="row">
+        <label for="template-file">Word template</label>
+        <input id="template-file" type="text" class="wide path" spellcheck="false"
+               placeholder="Full path to the .docx file with the {{DECLARED_LIST}} paragraph">
+        <button id="template-browse" type="button">Browse…</button>
+      </div>
+      <div class="row">
         <label for="output-dir">Output folder</label>
         <input id="output-dir" type="text" class="wide path" spellcheck="false" placeholder="Folder for generated Word documents">
         <button id="output-browse" type="button">Browse…</button>

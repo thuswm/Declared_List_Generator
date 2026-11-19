@@ -80,8 +80,8 @@ def roots(platform: str | None = None) -> list[Entry]:
 def _is_hidden(entry: os.DirEntry[str]) -> bool:
     """Decide whether to hide an entry from the dialog.
 
-    Dot-files (Unix convention), Office lock files (``~$name.xlsx``, which
-    Excel leaves next to open workbooks) and files with the Windows hidden
+    Dot-files (Unix convention), Office lock files (``~$name.xlsx``/``~$name.docx``,
+    which Excel and Word leave next to open files) and files with the Windows hidden
     attribute are hidden.
 
     Args:

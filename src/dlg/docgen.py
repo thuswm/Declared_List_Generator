@@ -146,13 +146,7 @@ def build_document(
         raise DocgenError("No items selected; nothing to put in the declared list.")
     if not columns:
         raise DocgenError("The item database has no columns to export.")
-    path = Path(template_path)
-    if not path.is_file():
-        raise DocgenError(f"Template not found: {path}")
-    try:
-        doc = Document(str(path))
-    except Exception as exc:  # python-docx raises several types for bad packages
-        raise DocgenError(f"Cannot read template {path.name}: {exc}") from exc
+    doc = _open_template(template_path)
 
     # Before the table exists, so item text that happens to contain a
     # placeholder is never substituted.
@@ -231,6 +225,43 @@ def _replace_in_paragraph(paragraph: Paragraph, old: str, new: str) -> None:
         runs[0].text = joined.replace(old, new)
         for run in runs[1:]:
             run.text = ""
+
+
+def check_template(template_path: str | Path) -> None:
+    """Check that a file can be used as the Word template.
+
+    Used when the template is chosen in Settings, so a wrong file is reported
+    then and not only at the next export.
+
+    Args:
+        template_path: Candidate template file.
+
+    Raises:
+        DocgenError: If the file is missing, not a readable Word document, or
+            has no ``{{DECLARED_LIST}}`` placeholder paragraph.
+    """
+    _find_placeholder(_open_template(template_path))
+
+
+def _open_template(template_path: str | Path) -> DocumentType:
+    """Open the Word template.
+
+    Args:
+        template_path: Template file.
+
+    Returns:
+        The loaded document.
+
+    Raises:
+        DocgenError: If the file is missing or not a readable Word document.
+    """
+    path = Path(template_path)
+    if not path.is_file():
+        raise DocgenError(f"Template not found: {path}")
+    try:
+        return Document(str(path))
+    except Exception as exc:  # python-docx raises several types for bad packages
+        raise DocgenError(f"Cannot read template {path.name}: {exc}") from exc
 
 
 def _find_placeholder(doc: DocumentType) -> Paragraph:

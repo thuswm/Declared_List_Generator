@@ -3,6 +3,11 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-19 – Template file in Settings (0.3.0 step 2)
+- `template_file` joins `GET`/`PUT /api/settings` and the Settings panel ("Word template" + Browse). Like the output folder, only a *changed* value is validated, so a template that has since gone missing doesn't block saving other settings (export reports it then).
+- A changed template is checked on save, not just at export: absolute path, `.docx`, readable by python-docx, and has the `{{DECLARED_LIST}}` paragraph (`docgen.check_template`, which shares `_open_template` with export). `.dotx` is not accepted: python-docx cannot open Word template packages.
+- `/api/fs` takes `ext` (`.xlsx` default, `.docx`; allowlist `BROWSE_EXTENSIONS`, others → 400). The GUI dialog's `openBrowse({ext})` shows the extension in its hints. Word lock files `~$*.docx` were already hidden by the `~$` rule.
+
 ## 2026-11-19 – Windows test fixes (0.3.0 step 1)
 - **Caching:** an HTTP middleware sets `Cache-Control: no-cache` on every response (GUI files and API) unless one is already set. The browser may still cache, but revalidates first; `StaticFiles` sends ETag/Last-Modified, so an unchanged file costs only a 304. Before, browsers cached `app.js`/`logic.js` heuristically and kept the old version after an update.
 - **Version:** `dlg.get_version()` reads `pyproject.toml` of the checkout first, then the installed metadata. Gotcha: with the editable install (`pip install -e`), the metadata keeps the version from install time and goes stale after a `git pull`. A `pyproject.toml` of another project is ignored (name must be `dlg`). `GET /api/info` → `{version}`; shown as `vX.Y.Z` in the header (not awaited, cosmetic).
