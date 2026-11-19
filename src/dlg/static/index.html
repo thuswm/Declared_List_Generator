@@ -11,6 +11,7 @@
 <body>
   <header class="app-header">
     <h1>Declared List Generator</h1>
+    <span id="version" class="muted version"></span>
     <span id="source" class="muted"></span>
     <span id="current" class="current" aria-live="polite" hidden></span>
     <button id="exit-btn" type="button" class="exit-btn" title="Stop the tool">Exit</button>
@@ -38,6 +39,28 @@
                placeholder="Header of the column with unique item IDs">
       </div>
       <div class="row">
+        <label for="template-file">Word template</label>
+        <input id="template-file" type="text" class="wide path" spellcheck="false"
+               placeholder="Full path to the .docx file with the {{DECLARED_LIST}} paragraph">
+        <button id="template-browse" type="button">Browse…</button>
+      </div>
+      <div class="row">
+        <label for="layout-file">Table layout</label>
+        <input id="layout-file" type="text" class="wide path" spellcheck="false"
+               placeholder="Empty: the layout sheet inside the item database">
+        <button id="layout-browse" type="button">Browse…</button>
+      </div>
+      <div class="row">
+        <label for="layout-sheet">Layout sheet</label>
+        <input id="layout-sheet" type="text" maxlength="100" spellcheck="false" placeholder="Word layout">
+        <span class="muted small">Without this sheet the Word table gets one header row with all columns.</span>
+      </div>
+      <div class="row">
+        <label for="font-size">Table font size</label>
+        <input id="font-size" type="number" min="0" max="72" step="0.5" class="font-size" placeholder="0">
+        <span class="muted small">pt · 0 or empty = the template's font size</span>
+      </div>
+      <div class="row">
         <label for="output-dir">Output folder</label>
         <input id="output-dir" type="text" class="wide path" spellcheck="false" placeholder="Folder for generated Word documents">
         <button id="output-browse" type="button">Browse…</button>
@@ -54,7 +77,8 @@
       <div class="row">
         <label for="session-name">Name</label>
         <input id="session-name" type="text" maxlength="200" placeholder="e.g. Project A">
-        <button id="save-btn" type="button">Save</button>
+        <button id="save-btn" type="button" title="Save in My sessions">Save</button>
+        <button id="save-to-btn" type="button" title="Save in a folder you choose, e.g. the shared library">Save to…</button>
       </div>
       <div class="row">
         <label for="config-name">Configuration</label>
@@ -62,10 +86,8 @@
                placeholder="Configuration the items belong to, e.g. Rig 7, build B">
       </div>
       <div class="row">
-        <label for="session-list">Saved</label>
-        <select id="session-list"></select>
-        <button id="load-btn" type="button">Load</button>
-        <button id="delete-btn" type="button" class="danger">Delete</button>
+        <span class="label-gap"></span>
+        <button id="library-btn" type="button">Session library…</button>
       </div>
     </section>
 
@@ -83,7 +105,10 @@
         <label for="file-name">File name</label>
         <input id="file-name" type="text" maxlength="200" spellcheck="false" class="file-name">
         <span class="muted">.docx</span>
+        <button id="file-name-reset" type="button" title="Use the name suggested from the configuration or session name" disabled>Reset name</button>
         <button id="export-btn" type="button" class="primary">Export Word document</button>
+        <button id="open-doc-btn" type="button" hidden>Open document</button>
+        <button id="open-folder-btn" type="button" hidden>Open folder</button>
       </div>
 
       <div class="table-wrap">
@@ -100,6 +125,48 @@
       </div>
     </section>
   </main>
+
+  <!-- Session library: the sessions in one folder as a sortable, searchable table. -->
+  <dialog id="library-dialog" class="library-dialog" aria-labelledby="library-title">
+    <h2 id="library-title">Session library</h2>
+    <div class="row library-tabs" role="tablist" aria-label="Library">
+      <button id="lib-tab-user" type="button" role="tab" data-lib="user">My sessions</button>
+      <button id="lib-tab-global" type="button" role="tab" data-lib="global">Shared library</button>
+      <button id="lib-tab-other" type="button" role="tab" data-lib="other">Other folder</button>
+    </div>
+    <div class="row">
+      <span id="library-folder" class="muted path library-folder"></span>
+      <button id="library-change" type="button">Change folder…</button>
+    </div>
+    <div class="row">
+      <label for="library-search" class="sr-only">Search sessions</label>
+      <input id="library-search" type="search" placeholder="Search name, configuration, file…" autocomplete="off">
+      <span id="library-count" class="muted" aria-live="polite"></span>
+    </div>
+    <div class="library-wrap">
+      <table class="library-table">
+        <thead>
+          <tr>
+            <th aria-sort="none"><button type="button" data-sort="name">Name</button></th>
+            <th aria-sort="none"><button type="button" data-sort="configuration_name">Configuration</button></th>
+            <th aria-sort="none" class="num"><button type="button" data-sort="count">Items</button></th>
+            <th aria-sort="none"><button type="button" data-sort="modified">Modified</button></th>
+            <th aria-sort="none"><button type="button" data-sort="file">File</button></th>
+          </tr>
+        </thead>
+        <tbody id="library-rows"></tbody>
+      </table>
+      <p id="library-empty" class="muted library-empty" hidden></p>
+    </div>
+    <p id="library-error" class="browse-error" role="alert" hidden></p>
+    <p id="library-skipped" class="muted small" hidden></p>
+    <div class="row browse-actions">
+      <span id="library-choice" class="muted path"></span>
+      <button id="library-delete" type="button" class="danger" disabled>Delete</button>
+      <button id="library-close" type="button">Close</button>
+      <button id="library-load" type="button" class="accent" disabled>Load</button>
+    </div>
+  </dialog>
 
   <!-- File/folder chooser; the server lists the folders (browsers cannot reveal real paths). -->
   <dialog id="browse-dialog" class="browse-dialog" aria-labelledby="browse-title">

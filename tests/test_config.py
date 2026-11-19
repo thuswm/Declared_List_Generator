@@ -86,3 +86,22 @@ def test_new_settings_are_appended_to_an_old_file(tmp_path: Path) -> None:
     assert cfg.port == 9000
     assert load_config(path) == cfg
     assert path.read_text(encoding="utf-8") == text  # nothing appended twice
+
+
+def test_global_sessions_dir_is_optional(tmp_path: Path) -> None:
+    """The shared library is unset by default (written as ""), and a set value round-trips."""
+    path = tmp_path / "config.toml"
+    cfg = load_config(path)
+    assert cfg.global_sessions_dir is None
+    assert 'global_sessions_dir = ""' in path.read_text(encoding="utf-8")
+    cfg.global_sessions_dir = tmp_path / "shared lib"
+    save_config(cfg, path)
+    assert load_config(path).global_sessions_dir == tmp_path / "shared lib"
+
+
+def test_old_file_gets_global_sessions_dir_appended_unset(tmp_path: Path) -> None:
+    """A 0.2.0 config file gains the new key, unset."""
+    path = tmp_path / "config.toml"
+    path.write_text('port = 9000\n', encoding="utf-8")
+    assert load_config(path).global_sessions_dir is None
+    assert 'global_sessions_dir = ""' in path.read_text(encoding="utf-8")

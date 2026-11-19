@@ -367,3 +367,75 @@ def test_shutdown_endpoint(tmp_path: Path) -> None:
     assert stopped == [True]
     r = TestClient(create_app(Config(sessions_dir=tmp_path / "s")), client=LOCAL).post("/api/shutdown")
     assert r.status_code == 503 and "Ctrl+C" in r.json()["detail"]
+
+
+def test_change_template_persists_and_is_used(local: tuple[TestClient, Path], tmp_path: Path) -> None:
+    """A new Word template is checked, saved to the config file and used by the next export."""
+    import shutil
+
+    from docx import Document
+
+    from dlg.config import load_config
+
+    c, cfg_path = local
+    template = tmp_path / "my template.docx"
+    shutil.copy(ROOT / "templates" / "declared_list_template.docx", template)
+    doc = Document(str(template))
+    doc.add_paragraph("MARKER FROM MY TEMPLATE")
+    doc.save(str(template))
+    before = c.get("/api/settings").json()
+    r = c.put("/api/settings", json={**before, "template_file": str(template)})
+    assert r.status_code == 200, r.text
+    assert r.json()["template_file"] == str(template)
+    assert load_config(cfg_path).template_file == template
+    item_id = c.get("/api/items").json()["items"][0]["id"]
+    out = c.post("/api/export", json={"selected_ids": [item_id], "file_name": "t"}).json()
+    assert "MARKER FROM MY TEMPLATE" in [p.text for p in Document(out["path"]).paragraphs]
+
+
+@pytest.mark.parametrize("make, fragment", [
+    (lambda d: "relative/t.docx", "full path"),
+    (lambda d: str(d / "missing.docx"), "not found"),
+    (lambda d: str(ROOT / "README.md"), ".docx"),
+    (lambda d: (d / "bad.docx").write_text("not a zip") and str(d / "bad.docx"), "Cannot read"),
+    (lambda d: _docx_without_placeholder(d), "{{DECLARED_LIST}}"),
+])
+def test_invalid_template_changes_nothing(local: tuple[TestClient, Path], tmp_path: Path, make, fragment: str) -> None:
+    """A template that cannot be used is rejected on save with a clear message."""
+    c, cfg_path = local
+    before_file = cfg_path.read_text(encoding="utf-8")
+    before = c.get("/api/settings").json()
+    r = c.put("/api/settings", json={**before, "template_file": make(tmp_path)})
+    assert r.status_code == 400 and fragment in r.json()["detail"], r.text
+    assert c.get("/api/settings").json() == before
+    assert cfg_path.read_text(encoding="utf-8") == before_file
+
+
+def _docx_without_placeholder(folder: Path) -> str:
+    """Write a valid Word file without the placeholder paragraph and return its path."""
+    from docx import Document
+
+    path = folder / "plain.docx"
+    doc = Document()
+    doc.add_paragraph("No placeholder here")
+    doc.save(str(path))
+    return str(path)
+
+
+def test_unchanged_missing_template_does_not_block_saving(tmp_path: Path) -> None:
+    """Re-sending a template that has since disappeared still lets other settings be saved."""
+    gone = tmp_path / "gone.docx"
+    c = TestClient(create_app(Config(sessions_dir=tmp_path / "s", template_file=gone)), client=LOCAL)
+    r = c.put("/api/settings", json={"template_file": str(gone), "output_dir": str(tmp_path)})
+    assert r.status_code == 200 and r.json()["output_dir"] == str(tmp_path)
+
+
+def test_browse_lists_docx_files_when_asked(local: tuple[TestClient, Path], tmp_path: Path) -> None:
+    """The browse dialog can list Word files (template) instead of Excel files; other types are refused."""
+    c, _ = local
+    (tmp_path / "db.xlsx").write_text("x")
+    (tmp_path / "t.docx").write_text("x")
+    (tmp_path / "~$t.docx").write_text("x")  # Word lock file: hidden
+    body = c.get("/api/fs", params={"path": str(tmp_path), "ext": ".docx"}).json()
+    assert [f["name"] for f in body["files"]] == ["t.docx"]
+    assert c.get("/api/fs", params={"path": str(tmp_path), "ext": ".exe"}).status_code == 400

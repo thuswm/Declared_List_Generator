@@ -17,14 +17,17 @@ from pathlib import Path
 
 from docx import Document
 from docx.document import Document as DocumentType
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.oxml.xmlchemy import BaseOxmlElement
 from docx.section import Section
-from docx.shared import Emu
+from docx.shared import Emu, Pt
 from docx.table import Table, _Cell, _Row
 from docx.text.paragraph import Paragraph
 
+from dlg.layout import HeaderCell, TableLayout
 from dlg.models import Item
 
 #: Text of the template paragraph that is replaced by the table.
@@ -81,6 +84,8 @@ def generate_declared_list(
     items: Sequence[Item],
     output_path: str | Path,
     configuration_name: str = "",
+    layout: TableLayout | None = None,
+    font_size: float = 0,
 ) -> Path:
     """Create a declared list document and save it to disk.
 
@@ -93,6 +98,9 @@ def generate_declared_list(
         items: Items to list, in the order they should appear.
         output_path: Where to write the finished .docx (folders are created).
         configuration_name: Text for ``{{CONFIGURATION_NAME}}``.
+        layout: Multi-level header and column order from the layout sheet;
+            None for the automatic one-row header over ``columns``.
+        font_size: Font size (pt) for the whole table; 0 keeps the template's.
 
     Returns:
         The output path.
@@ -103,7 +111,7 @@ def generate_declared_list(
         DocgenError: If the template is missing/invalid, has no placeholder,
             no items were given, or the file cannot be written.
     """
-    doc = build_document(template_path, columns, items, configuration_name)
+    doc = build_document(template_path, columns, items, configuration_name, layout, font_size)
     out = Path(output_path)
     tmp = out.with_name(f"~{out.stem}.tmp.docx")
     try:
@@ -126,6 +134,8 @@ def build_document(
     columns: Sequence[str],
     items: Sequence[Item],
     configuration_name: str = "",
+    layout: TableLayout | None = None,
+    font_size: float = 0,
 ) -> DocumentType:
     """Load the template, fill in text placeholders and insert the items table.
 
@@ -134,6 +144,9 @@ def build_document(
         columns: Names of the columns to put in the table, in order.
         items: Items to list, in order.
         configuration_name: Text for ``{{CONFIGURATION_NAME}}``.
+        layout: Header and column order from the layout sheet (``columns``
+            is then ignored); None for the automatic table.
+        font_size: Font size (pt) for the whole table; 0 keeps the template's.
 
     Returns:
         The populated document (not yet saved).
@@ -144,15 +157,11 @@ def build_document(
     """
     if not items:
         raise DocgenError("No items selected; nothing to put in the declared list.")
+    if layout is not None:
+        columns = layout.column_names
     if not columns:
         raise DocgenError("The item database has no columns to export.")
-    path = Path(template_path)
-    if not path.is_file():
-        raise DocgenError(f"Template not found: {path}")
-    try:
-        doc = Document(str(path))
-    except Exception as exc:  # python-docx raises several types for bad packages
-        raise DocgenError(f"Cannot read template {path.name}: {exc}") from exc
+    doc = _open_template(template_path)
 
     # Before the table exists, so item text that happens to contain a
     # placeholder is never substituted.
@@ -161,7 +170,9 @@ def build_document(
 
     placeholder = _find_placeholder(doc)
     section = doc.sections[_section_index(doc, placeholder._p)]
-    table = _build_table(doc, items, columns, _text_width(section))
+    table = _build_table(doc, items, columns, _text_width(section), layout)
+    if font_size:
+        _set_font_size(table, font_size)
 
     # Insert *before* the placeholder: if it carries the section break, inserting
     # after it would push the table into the next section (wrong orientation).
@@ -231,6 +242,43 @@ def _replace_in_paragraph(paragraph: Paragraph, old: str, new: str) -> None:
         runs[0].text = joined.replace(old, new)
         for run in runs[1:]:
             run.text = ""
+
+
+def check_template(template_path: str | Path) -> None:
+    """Check that a file can be used as the Word template.
+
+    Used when the template is chosen in Settings, so a wrong file is reported
+    then and not only at the next export.
+
+    Args:
+        template_path: Candidate template file.
+
+    Raises:
+        DocgenError: If the file is missing, not a readable Word document, or
+            has no ``{{DECLARED_LIST}}`` placeholder paragraph.
+    """
+    _find_placeholder(_open_template(template_path))
+
+
+def _open_template(template_path: str | Path) -> DocumentType:
+    """Open the Word template.
+
+    Args:
+        template_path: Template file.
+
+    Returns:
+        The loaded document.
+
+    Raises:
+        DocgenError: If the file is missing or not a readable Word document.
+    """
+    path = Path(template_path)
+    if not path.is_file():
+        raise DocgenError(f"Template not found: {path}")
+    try:
+        return Document(str(path))
+    except Exception as exc:  # python-docx raises several types for bad packages
+        raise DocgenError(f"Cannot read template {path.name}: {exc}") from exc
 
 
 def _find_placeholder(doc: DocumentType) -> Paragraph:
@@ -321,32 +369,30 @@ def _build_table(
     items: Sequence[Item],
     columns: Sequence[str],
     width: int,
+    layout: TableLayout | None = None,
 ) -> Table:
     """Create the items table (appended at the end; caller moves it).
 
     Args:
         doc: Document that will own the table.
         items: Items to list.
-        columns: Column names (header texts and keys into ``Item.values``).
+        columns: Column names (keys into ``Item.values``; also the header
+            texts when there is no layout).
         width: Total table width in EMU.
+        layout: Multi-level header and relative widths; None for a one-row
+            header with widths estimated from the content.
 
     Returns:
-        The finished table with a repeating, bold, shaded header row.
+        The finished table with repeating, bold, shaded header row(s).
     """
-    table = doc.add_table(rows=1, cols=len(columns))
+    header_rows = layout.header_rows if layout else 1
+    table = doc.add_table(rows=header_rows, cols=len(columns))
     _apply_borders(table)
     table.autofit = False
 
-    weights = column_weights(columns, items)
+    weights = layout.widths if layout else column_weights(columns, items)
     total = sum(weights)
     widths = [Emu(int(width * w / total)) for w in weights]
-
-    for cell, name in zip(table.rows[0].cells, columns):
-        cell.text = _clean(name)
-        for run in cell.paragraphs[0].runs:
-            run.bold = True
-        _shade(cell, "D9D9D9")
-    _mark_header_row(table.rows[0])
 
     for item in items:
         row = table.add_row()
@@ -356,13 +402,83 @@ def _build_table(
 
     # Word honours per-cell widths but LibreOffice and others follow the column
     # grid, so set both, plus a fixed layout and total width, to render alike.
+    # Set before merging: python-docx adds up the widths of merged cells.
     for col, w in zip(table.columns, widths):
         col.width = w
     for row in table.rows:
         for cell, w in zip(row.cells, widths):
             cell.width = w
+
+    cells = layout.cells if layout else [HeaderCell(0, i, name) for i, name in enumerate(columns)]
+    for spec in cells:
+        cell = table.cell(spec.row, spec.col)
+        if spec.merged:
+            cell = cell.merge(table.cell(spec.row + spec.row_span - 1, spec.col + spec.col_span - 1))
+        _fill_header_cell(cell, spec.text, centred=spec.merged)
+    for row in table.rows[:header_rows]:
+        _mark_header_row(row)
     _fix_layout(table, sum(widths))
     return table
+
+
+def _set_font_size(table: Table, size: float) -> None:
+    """Set one font size for all text in the table, with compact cell spacing.
+
+    The size is set on every run *and* on every paragraph mark. Word sizes an
+    empty paragraph (an empty cell) by its mark, so without it empty cells keep
+    the template's larger font and make their rows taller than the rest.
+
+    Paragraphs in the cells also get no space before/after and single line
+    spacing: templates often add space after every paragraph (e.g. 10 pt at
+    1.15 lines), which otherwise dominates the row height once the text is
+    small (user decision: only when a size is set, so the template look is
+    kept by default).
+
+    Args:
+        table: The finished items table.
+        size: Font size in points (half-point steps).
+    """
+    half_points = str(int(round(size * 2)))
+    for tc in table._tbl.iter(qn("w:tc")):  # each (merged) cell once
+        for p in tc.iter(qn("w:p")):
+            paragraph = Paragraph(p, table)
+            for run in paragraph.runs:
+                run.font.size = Pt(size)
+            fmt = paragraph.paragraph_format  # python-docx keeps pPr children in schema order
+            fmt.space_before = Pt(0)
+            fmt.space_after = Pt(0)
+            fmt.line_spacing = 1.0
+            p_pr = p.get_or_add_pPr()
+            r_pr = p_pr.find(qn("w:rPr"))
+            if r_pr is None:
+                # rPr sits near the end of pPr (only sectPr/pPrChange follow, never in table cells).
+                r_pr = OxmlElement("w:rPr")
+                p_pr.append(r_pr)
+            for tag in ("w:sz", "w:szCs"):
+                el = r_pr.find(qn(tag))
+                if el is None:
+                    el = OxmlElement(tag)
+                    r_pr.append(el)
+                el.set(qn("w:val"), half_points)
+
+
+def _fill_header_cell(cell: _Cell, text: str, centred: bool) -> None:
+    """Write a header cell: bold text on grey, vertically centred.
+
+    Args:
+        cell: The (possibly merged) header cell.
+        text: Its text; line breaks from Excel (Alt+Enter) are kept.
+        centred: Centre the text horizontally (used for merged cells, which
+            usually title the columns beneath them).
+    """
+    cell.text = _clean(text)  # python-docx turns "\n" into a line break
+    for paragraph in cell.paragraphs:
+        if centred:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for run in paragraph.runs:
+            run.bold = True
+    cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    _shade(cell, "D9D9D9")
 
 
 def _fix_layout(table: Table, total: int) -> None:

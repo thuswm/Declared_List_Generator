@@ -1,4 +1,4 @@
-"""Generate the example item database and the example Word template.
+"""Generate the example item database, Word table layout and Word template.
 
 Run from the project root: ``.venv/bin/python tools/make_examples.py``
 """
@@ -49,6 +49,32 @@ def make_items_xlsx(path: Path) -> None:
     wb.save(path)
 
 
+def make_layout_xlsx(path: Path) -> None:
+    """Write an example Word table layout for the example database.
+
+    Kept in its own workbook (chosen with "Table layout" in Settings) so the
+    example database still shows the automatic table out of the box. Copy the
+    sheet into the database workbook to make it the default there.
+
+    Args:
+        path: Destination .xlsx path.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Word layout"
+    ws.append(["Item", None, "Supplier", "Category", "Traceability", None])
+    ws.append(["No.", "Designation", None, None, "Serial number", "Checked\nby"])
+    # Mapping row (not printed): data-sheet columns; "Checked by*" exists only here (typed in the tool).
+    ws.append(["ID", "Name", "Supplier", "Category", "Serial number*", "Checked by*"])
+    # Across (Item, Traceability) and down (Supplier, Category span both header rows).
+    for rng in ("A1:B1", "C1:C2", "D1:D2", "E1:F1"):
+        ws.merge_cells(rng)
+    for letter, width in zip("ABCDEF", (10, 30, 16, 14, 18, 12)):
+        ws.column_dimensions[letter].width = width
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(path)
+
+
 def make_template_docx(path: Path) -> None:
     """Write the example Word template.
 
@@ -91,5 +117,7 @@ def make_template_docx(path: Path) -> None:
 if __name__ == "__main__":
     make_items_xlsx(ROOT / "data" / "items.xlsx")
     print("Wrote data/items.xlsx")
+    make_layout_xlsx(ROOT / "data" / "layout_example.xlsx")
+    print("Wrote data/layout_example.xlsx")
     make_template_docx(ROOT / "templates" / "declared_list_template.docx")
     print("Wrote templates/declared_list_template.docx")

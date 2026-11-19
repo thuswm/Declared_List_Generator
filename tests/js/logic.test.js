@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   chooseFilter, currentLabel, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds,
-  sessionLabel, setMany, setUserValue, suggestFileName, withUserValues,
+  filterSessions, sessionLabel, setMany, setUserValue, sortSessions, suggestFileName, withUserValues,
 } from '../../src/dlg/static/logic.js';
 
 const row = (id, name, description, category, supplier = '') => (
@@ -169,4 +169,28 @@ test('suggestFileName: configuration first, then session, then default; Windows-
   assert.equal(suggestFileName('Rig 7. ', ''), 'Rig 7');
   assert.equal(suggestFileName('...', ''), 'declared_list');
   assert.equal(suggestFileName('x'.repeat(150), '').length, 100);
+});
+
+const LIB = [
+  { name: 'Rig 10', configuration_name: 'Build B', file: 'Rig 10.json', source: 'items.xlsx', count: 2, modified: '2026-11-18T10:00:00Z' },
+  { name: 'rig 2', configuration_name: '', file: 'rig 2.json', source: 'other.xlsx', count: 12, modified: '2026-11-19T09:00:00Z' },
+  { name: 'Alpha', configuration_name: 'Build A', file: 'Alpha.json', source: 'items.xlsx', count: 2, modified: '2026-11-17T08:00:00Z' },
+];
+
+test('filterSessions: terms AND over name, configuration, file and database', () => {
+  assert.deepEqual(filterSessions(LIB, '').map((s) => s.name), ['Rig 10', 'rig 2', 'Alpha']);
+  assert.deepEqual(filterSessions(LIB, 'RIG').map((s) => s.name), ['Rig 10', 'rig 2']);
+  assert.deepEqual(filterSessions(LIB, 'rig build').map((s) => s.name), ['Rig 10']);
+  assert.deepEqual(filterSessions(LIB, 'other.xlsx').map((s) => s.name), ['rig 2']);
+  assert.deepEqual(filterSessions(LIB, 'alpha.json').map((s) => s.name), ['Alpha']);
+});
+
+test('sortSessions: natural text order, numbers, dates, direction, ties newest first', () => {
+  assert.deepEqual(sortSessions(LIB, 'name', 'asc').map((s) => s.name), ['Alpha', 'rig 2', 'Rig 10']);
+  assert.deepEqual(sortSessions(LIB, 'name', 'desc').map((s) => s.name), ['Rig 10', 'rig 2', 'Alpha']);
+  assert.deepEqual(sortSessions(LIB, 'modified', 'desc').map((s) => s.name), ['rig 2', 'Rig 10', 'Alpha']);
+  assert.deepEqual(sortSessions(LIB, 'count', 'asc').map((s) => s.name), ['Rig 10', 'Alpha', 'rig 2']);
+  // Blank configuration sorts last, as in the column filter lists.
+  assert.deepEqual(sortSessions(LIB, 'configuration_name', 'asc').map((s) => s.name), ['Alpha', 'Rig 10', 'rig 2']);
+  assert.equal(LIB[0].name, 'Rig 10'); // input not modified
 });

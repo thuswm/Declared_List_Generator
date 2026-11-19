@@ -1,6 +1,7 @@
 """Excel (.xlsx) implementation of :class:`~dlg.sources.base.ItemSource`.
 
-Header conventions (first row of the first sheet):
+Header conventions (first row of the data sheet, which is the first sheet
+other than the Word layout sheet, see ``dlg.layout``):
 
 * Every column with a non-empty header is shown and exported, in sheet order.
 * A header starting with ``#`` (e.g. ``#Internal note``) marks a column the
@@ -17,7 +18,8 @@ from collections.abc import Iterator
 from datetime import date, datetime, time
 from pathlib import Path
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.worksheet.worksheet import Worksheet
 
 from dlg.models import Column, Item, ItemTable
 
@@ -68,15 +70,20 @@ class ExcelItemSource:
         name: Filename of the workbook.
     """
 
-    def __init__(self, path: str | Path, id_column: str = DEFAULT_ID_COLUMN) -> None:
+    def __init__(
+        self, path: str | Path, id_column: str = DEFAULT_ID_COLUMN, skip_sheet: str | None = None
+    ) -> None:
         """Initialise the source.
 
         Args:
             path: Path to the .xlsx file.
             id_column: Header of the ID column.
+            skip_sheet: Sheet that never holds the data (the Word layout sheet),
+                matched ignoring case; None to always use the first sheet.
         """
         self.path = Path(path)
         self.id_column = id_column
+        self.skip_sheet = skip_sheet
         self.name = self.path.name
 
     def load(self) -> ItemTable:
@@ -97,7 +104,7 @@ class ExcelItemSource:
             raise ItemSourceError(f"Cannot read {self.path}: {exc}") from exc
 
         try:
-            rows = wb.worksheets[0].iter_rows(values_only=True)
+            rows = self._data_sheet(wb).iter_rows(values_only=True)
             header = next(rows, None)
             if header is None:
                 raise ItemSourceError(f"{self.name} is empty (no header row).")
@@ -106,6 +113,24 @@ class ExcelItemSource:
         finally:
             wb.close()
         return ItemTable(id_column=self.id_column, columns=columns, items=items)
+
+    def _data_sheet(self, wb: Workbook) -> Worksheet:
+        """Pick the data sheet: the first sheet that is not the layout sheet.
+
+        Args:
+            wb: The open workbook.
+
+        Returns:
+            The worksheet holding the items.
+
+        Raises:
+            ItemSourceError: If the workbook has no other sheet.
+        """
+        skip = (self.skip_sheet or "").strip().casefold()
+        for ws in wb.worksheets:
+            if not skip or ws.title.strip().casefold() != skip:
+                return ws
+        raise ItemSourceError(f"{self.name} has no data sheet (only the layout sheet '{self.skip_sheet}').")
 
     def _shown_columns(self, header: tuple) -> tuple[list[Column], dict[str, int]]:
         """Work out which columns are shown, which are user input, and where they are.

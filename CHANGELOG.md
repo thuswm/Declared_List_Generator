@@ -2,6 +2,18 @@
 
 Format: one entry per release, newest first. Versioning: [SemVer](https://semver.org/).
 
+## [0.3.0] – 2026-11-19
+Changes from the Windows test of 0.2.0. Steps 3–7 not yet tried on Windows; Open document/folder not yet tried with real Word/Explorer.
+- **No more F5 after an update:** the GUI files are always revalidated; the app version is shown in the page header.
+- **File-name field** no longer snaps back to the old name when emptied; the suggestion returns when the field is left empty, or with **Reset name**.
+- **Word template** chosen in Settings with Browse.
+- **Session library** dialog replaces the "Saved" drop-down: My sessions, a **Shared library** (new setting `global_sessions_dir`) or any folder; search, sorting, load and delete.
+- **Save to…** saves the session into a chosen folder (e.g. the shared library) and asks before replacing a file there.
+- **Multi-level Word table header** drawn in an Excel layout sheet (`Word layout` in the database workbook, or settings `table_layout_file` / `table_layout_sheet`): free header text, merged cells across and down, last row maps the database columns (`*` = input column, may exist only in the layout), Excel column widths become the Word widths. Example: `data/layout_example.xlsx`. Without a layout sheet the table is built as before.
+- **Table font size** setting (`table_font_size`, 0 = template's size); with a size set the cells get compact spacing.
+- **Open document / Open folder** buttons after an export (local only; only the exported file in the output folder).
+- `output/` is git-ignored. Session files unchanged (`schema_version` 2).
+
 ## [0.2.0] – 2026-11-18
 Changes from the first test run on Windows. Not yet tested on Windows or in real Word.
 - **Per-user config file** (`config.toml`, created on first run; `%APPDATA%\dlg` on Windows, `~/.config/dlg` on Linux) replaces the `DLG_*` environment variables. New settings are appended to older files.

@@ -9,3 +9,6 @@ my_notes.md
 
 # Personal session files (keep the folder via .gitkeep)
 sessions/*.json
+
+# Exported Word documents (default output folder)
+output/

@@ -50,7 +50,14 @@ class Config:
     Attributes:
         items_file: Excel item database.
         template_file: Word template containing the placeholder.
-        sessions_dir: Folder for session JSON files.
+        sessions_dir: Folder for session JSON files (the user's library).
+        global_sessions_dir: Shared session library (e.g. on a network drive);
+            None when not set. Written as ``""`` in the file.
+        table_layout_file: Workbook with the Word table layout sheet; None
+            (``""``) means the item database workbook.
+        table_layout_sheet: Name of the Word table layout sheet.
+        table_font_size: Font size (pt) of the Word table; 0 keeps the
+            template's font size.
         output_dir: Folder where generated Word documents are written.
         id_column: Header of the item-database column holding the unique item IDs.
         host: Interface the server binds to (localhost: no authentication).
@@ -60,13 +67,57 @@ class Config:
     items_file: Path = field(default_factory=lambda: _default_path("data/items.xlsx"))
     template_file: Path = field(default_factory=lambda: _default_path("templates/declared_list_template.docx"))
     sessions_dir: Path = field(default_factory=lambda: _default_path("sessions"))
+    global_sessions_dir: Path | None = None
+    table_layout_file: Path | None = None
+    table_layout_sheet: str = "Word layout"
+    table_font_size: float = 0.0
     output_dir: Path = field(default_factory=lambda: _default_path("output"))
     id_column: str = "ID"
     host: str = "127.0.0.1"
     port: int = 8000
 
 
-_PATH_KEYS = ("items_file", "template_file", "sessions_dir", "output_dir")
+#: Smallest and largest table font size (pt); Word allows half-point steps.
+MIN_FONT_SIZE = 4.0
+MAX_FONT_SIZE = 72.0
+
+
+def font_size_problem(size: float) -> str | None:
+    """Check a table font size.
+
+    Args:
+        size: Size in points; 0 means "keep the template's size".
+
+    Returns:
+        A message describing the problem, or None if the size is valid.
+    """
+    if size == 0:
+        return None
+    if not MIN_FONT_SIZE <= size <= MAX_FONT_SIZE or (size * 2) != int(size * 2):
+        return (f"Table font size must be 0 (template font) or {MIN_FONT_SIZE:g}–{MAX_FONT_SIZE:g} pt "
+                "in steps of 0.5.")
+    return None
+
+
+_PATH_KEYS = (
+    "items_file", "template_file", "sessions_dir", "global_sessions_dir", "output_dir", "table_layout_file",
+)
+#: Path settings that may be unset (``""`` in the file, None in memory).
+_OPTIONAL_PATH_KEYS = ("global_sessions_dir", "table_layout_file")
+
+
+def _file_value(value: object) -> str | int | float:
+    """Convert a setting to what is written in the file (paths as text, None as ``""``).
+
+    Args:
+        value: Setting value.
+
+    Returns:
+        A string or number for :func:`_toml_value`.
+    """
+    if value is None:
+        return ""
+    return str(value) if isinstance(value, Path) else value  # type: ignore[return-value]
 
 
 def default_config_path(platform: str | None = None, env: dict[str, str] | None = None) -> Path:
@@ -91,8 +142,8 @@ def default_config_path(platform: str | None = None, env: dict[str, str] | None 
     return base / APP_DIR_NAME / CONFIG_FILE_NAME
 
 
-def _toml_value(value: str | int) -> str:
-    """Format a string or integer as a TOML value.
+def _toml_value(value: str | int | float) -> str:
+    """Format a string or number as a TOML value.
 
     JSON string escaping is a valid subset of TOML basic strings, which keeps
     Windows backslashes and non-ASCII characters safe.
@@ -118,8 +169,7 @@ def save_config(config: Config, path: Path) -> None:
     """
     lines = [_HEADER]
     for f in fields(config):
-        value = getattr(config, f.name)
-        lines.append(f"{f.name} = {_toml_value(str(value) if isinstance(value, Path) else value)}")
+        lines.append(f"{f.name} = {_toml_value(_file_value(getattr(config, f.name)))}")
     tmp = path.with_name(path.name + ".tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -162,10 +212,22 @@ def load_config(path: Path | None = None) -> Config:
         if f.name not in data:
             continue
         value = data[f.name]
+        if f.name == "table_font_size":
+            # TOML writes 8 and 8.5 as int and float; both mean points.
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                raise ConfigError(f"Configuration file {path}: 'table_font_size' must be a number.")
+            value = float(value)
+            problem = font_size_problem(value)
+            if problem:
+                raise ConfigError(f"Configuration file {path}: {problem}")
+            setattr(config, f.name, value)
+            continue
         expected = int if f.name == "port" else str
         if not isinstance(value, expected) or isinstance(value, bool):
             raise ConfigError(f"Configuration file {path}: '{f.name}' must be a {expected.__name__}.")
-        if f.name in _PATH_KEYS:
+        if f.name in _OPTIONAL_PATH_KEYS and not value.strip():
+            value = None
+        elif f.name in _PATH_KEYS:
             value = Path(value).expanduser()
             if not value.is_absolute():
                 value = path.parent / value
@@ -175,6 +237,8 @@ def load_config(path: Path | None = None) -> Config:
     if not config.id_column.strip():
         raise ConfigError(f"Configuration file {path}: 'id_column' must not be empty.")
     config.id_column = config.id_column.strip()
+    if not config.table_layout_sheet.strip():
+        raise ConfigError(f"Configuration file {path}: 'table_layout_sheet' must not be empty.")
     return config
 
 
@@ -195,8 +259,7 @@ def _append_missing_keys(path: Path, data: dict[str, Any]) -> None:
         return
     lines = ["", "# Added by a newer version of the tool (defaults):"]
     for f in missing:
-        value = getattr(defaults, f.name)
-        lines.append(f"{f.name} = {_toml_value(str(value) if isinstance(value, Path) else value)}")
+        lines.append(f"{f.name} = {_toml_value(_file_value(getattr(defaults, f.name)))}")
     try:
         text = path.read_text(encoding="utf-8")
         sep = "" if text.endswith("\n") or not text else "\n"

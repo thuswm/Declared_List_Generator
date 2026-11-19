@@ -6,7 +6,7 @@
  */
 import {
   chooseFilter, currentLabel, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds,
-  sessionLabel, setMany, setUserValue, suggestFileName, withUserValues,
+  filterSessions, sessionLabel, setMany, setUserValue, sortSessions, suggestFileName, withUserValues,
 } from './logic.js';
 
 /** Label shown for empty cells in a filter list. */
@@ -20,12 +20,16 @@ const state = {
   filter: { search: '', onlySelected: false, columns: {} },
   // The open filter panel: column, offered values, ticked values, typed text, opening button.
   panel: null,
-  sessions: [],
+  sessions: [], // sessions in the user's library (for the "overwrite?" check on save)
   sessionName: '', // name of the session last loaded or saved
+  sessionKind: 'user', // library the current session came from: 'user' | 'global' | 'other'
+  sessionPath: '', // file of the session last loaded ('' after a save)
+  libraryDirs: { user: '', global: '' }, // session library folders from the settings
   configurationName: '', // configuration name of that session, as last loaded or saved
   userValues: {}, // values typed in user-input columns: {itemId: {column: value}}
-  savedDatabase: '', // item database path + ID column as last saved (detects a change)
+  savedDatabase: '', // database, ID column and layout settings as last saved (detects a column change)
   fileNameEdited: false, // the user typed a file name; stop suggesting one
+  exportedFile: '', // file name of the last export (for Open document / Open folder)
   dirty: false, // selection changed since last load/save
 };
 
@@ -37,6 +41,9 @@ const el = {
   panelQuery: $('filter-query'), panelAll: $('filter-all'), panelValues: $('filter-values'),
   panelOk: $('filter-ok'), panelCancel: $('filter-cancel'), panelClear: $('filter-clear'),
   settings: $('settings'), itemsFile: $('items-file'), idColumn: $('id-column'), outputDir: $('output-dir'),
+  templateFile: $('template-file'), templateBrowse: $('template-browse'),
+  layoutFile: $('layout-file'), layoutBrowse: $('layout-browse'), layoutSheet: $('layout-sheet'),
+  fontSize: $('font-size'),
   itemsBrowse: $('items-browse'), outputBrowse: $('output-browse'), settingsSave: $('settings-save'),
   configFile: $('config-file'), browse: $('browse-dialog'), browseTitle: $('browse-title'),
   browseRoots: $('browse-roots'), browseUp: $('browse-up'), browsePath: $('browse-path'), browseGo: $('browse-go'),
@@ -44,8 +51,13 @@ const el = {
   browseCancel: $('browse-cancel'), browseSelect: $('browse-select'),
   clear: $('clear-btn'), count: $('count'), exportBtn: $('export-btn'),
   selectVisible: $('select-visible'), sessionName: $('session-name'), configName: $('config-name'),
-  current: $('current'), fileName: $('file-name'), exitBtn: $('exit-btn'), stopped: $('stopped'),
-  sessionList: $('session-list'), save: $('save-btn'), load: $('load-btn'), del: $('delete-btn'),
+  openDoc: $('open-doc-btn'), openFolder: $('open-folder-btn'),
+  current: $('current'), fileName: $('file-name'), fileNameReset: $('file-name-reset'), version: $('version'), exitBtn: $('exit-btn'), stopped: $('stopped'),
+  save: $('save-btn'), saveTo: $('save-to-btn'), libraryBtn: $('library-btn'), library: $('library-dialog'),
+  libraryFolder: $('library-folder'), libraryChange: $('library-change'), librarySearch: $('library-search'),
+  libraryCount: $('library-count'), libraryRows: $('library-rows'), libraryEmpty: $('library-empty'),
+  libraryError: $('library-error'), librarySkipped: $('library-skipped'), libraryChoice: $('library-choice'),
+  libraryDelete: $('library-delete'), libraryClose: $('library-close'), libraryLoad: $('library-load'),
 };
 
 /**
@@ -183,8 +195,6 @@ function updateSummary() {
   el.clearFilters.textContent = nFilters ? `Clear filters (${nFilters})` : 'Clear filters';
   el.clearFilters.disabled = nFilters === 0;
   el.clear.disabled = n === 0;
-  el.del.disabled = !el.sessionList.value;
-  el.load.disabled = !el.sessionList.value;
 }
 
 /**
@@ -373,31 +383,34 @@ function bindFilterEvents() {
   });
 }
 
+/** Names of the libraries, as shown to the user. */
+const LIBRARY_NAMES = { user: 'My sessions', global: 'the shared library', other: 'another folder' };
+/** Header suffix telling where the current session lives (none for My sessions). */
+const LIBRARY_TAGS = { user: '', global: ' (shared library)', other: ' (other folder)' };
+
+/**
+ * Work out which library a folder is.
+ * @param {string} folder Folder path ('' = My sessions).
+ * @returns {'user'|'global'|'other'} The library.
+ */
+function libraryKind(folder) {
+  const norm = (p) => p.replace(/[\\/]+$/, '');
+  if (!folder || norm(folder) === norm(state.libraryDirs.user)) return 'user';
+  if (state.libraryDirs.global && norm(folder) === norm(state.libraryDirs.global)) return 'global';
+  return 'other';
+}
+
 /** Show the current session and its configuration in the page header. */
 function renderCurrent() {
   const text = currentLabel(state.sessionName, state.configurationName);
-  el.current.textContent = text;
+  // Say where a session outside the user's library lives: plain Save puts a copy in My sessions.
+  el.current.textContent = text ? text + LIBRARY_TAGS[state.sessionKind] : text;
   el.current.hidden = !text;
 }
 
-/** Rebuild the saved-sessions dropdown. */
-function renderSessions() {
-  const options = state.sessions.map((s) => {
-    const option = new Option(sessionLabel(s), s.name);
-    option.title = option.text; // full text on hover when the list is narrow
-    return option;
-  });
-  if (options.length === 0) options.push(new Option('(no saved sessions)', ''));
-  el.sessionList.replaceChildren(...options);
-  const keep = state.sessions.some((s) => s.name === state.sessionName);
-  if (keep) el.sessionList.value = state.sessionName;
-  updateSummary();
-}
-
-/** Fetch and show the saved-sessions list. */
+/** Fetch the user's library (used to ask before overwriting a session on save). */
 async function refreshSessions() {
   state.sessions = await api('/api/sessions');
-  renderSessions();
 }
 
 /**
@@ -408,89 +421,356 @@ function confirmDiscard() {
   return !state.dirty || window.confirm('You have unsaved changes to the current selection. Discard them?');
 }
 
-/** Save the current selection under the entered name. */
-async function saveSession() {
+/**
+ * Check the session name field; complain if it is empty.
+ * @returns {string} The trimmed name, or '' if missing.
+ */
+function requireSessionName() {
   const name = el.sessionName.value.trim();
   if (!name) {
     showStatus('Enter a session name first.', 'error');
     el.sessionName.focus();
-    return;
   }
-  // Names are exact (case-sensitive) keys on the server, so compare exactly here too.
-  const exists = state.sessions.some((s) => s.name === name);
-  if (exists && name !== state.sessionName
-      && !window.confirm(`A session named "${name}" already exists. Overwrite it?`)) {
-    return;
-  }
+  return name;
+}
+
+/**
+ * Save the current selection under the entered name.
+ * @param {string} [folder] Folder to save into ("Save to…"); '' for My sessions.
+ */
+async function saveSession(folder = '') {
+  const name = requireSessionName();
+  if (!name) return;
   try {
+    // Names are exact (case-sensitive) keys on the server, so compare exactly here too.
+    // Overwriting needs no question only when saving the current session back to its own file.
+    const existing = folder
+      ? (await api(`/api/library?${new URLSearchParams({ folder })}`)).sessions.find((s) => s.name === name)
+      : state.sessions.find((s) => s.name === name);
+    const ownFile = folder
+      ? existing?.path === state.sessionPath
+      : name === state.sessionName && state.sessionKind === 'user';
+    const kind = libraryKind(folder);
+    const where = kind === 'other' ? ` in ${folder}` : ` in ${LIBRARY_NAMES[kind]}`;
+    if (existing && !ownFile && !window.confirm(`A session named "${name}" already exists${where}. Overwrite it?`)) {
+      return;
+    }
     const saved = await sendJson('/api/sessions', 'POST', {
       name,
       configuration_name: el.configName.value.trim(),
       selected_ids: [...state.selected],
       user_values: state.userValues,
+      folder,
     });
     state.sessionName = saved.name;
+    state.sessionKind = libraryKind(folder);
+    state.sessionPath = saved.path;
     state.configurationName = saved.configuration_name;
     el.configName.value = saved.configuration_name;
     state.dirty = false;
     renderCurrent();
     await refreshSessions();
-    showStatus(`Saved "${saved.name}" (${saved.selected_ids.length} items).`);
+    const n = saved.selected_ids.length;
+    showStatus(`Saved "${saved.name}" (${n} item${n === 1 ? '' : 's'}) to ${saved.path}.`);
   } catch (err) {
     showStatus(err.message, 'error');
   }
 }
 
-/** Load the session chosen in the dropdown. */
-async function loadSession() {
-  const name = el.sessionList.value;
-  if (!name || !confirmDiscard()) return;
+/**
+ * Make a loaded session the current one.
+ * @param {object} session Session from the server.
+ * @param {'user'|'global'|'other'} kind Library it came from.
+ * @param {string} path Its file.
+ */
+function applySession(session, kind, path) {
+  const { known, unknown } = partitionIds(session.selected_ids, state.items);
+  state.selected = new Set(known);
+  state.sessionName = session.name;
+  state.sessionKind = kind;
+  state.sessionPath = path;
+  state.configurationName = session.configuration_name;
+  state.userValues = session.user_values;
+  state.dirty = false;
+  el.sessionName.value = session.name;
+  el.configName.value = session.configuration_name;
+  useSuggestedName(); // a loaded session brings its own name
+  renderCurrent();
+  renderRows();
+  const from = kind === 'user' ? '' : ` from ${LIBRARY_NAMES[kind]}`;
+  const saveNote = kind === 'user' ? '' : ' Saving stores it in My sessions.';
+  if (unknown.length) {
+    showStatus(`Loaded "${session.name}"${from}, but ${unknown.length} item(s) are no longer in the database `
+      + `and were skipped: ${unknown.join(', ')}.${saveNote}`, 'warn');
+  } else {
+    showStatus(`Loaded "${session.name}"${from} (${known.length} item${known.length === 1 ? '' : 's'}).${saveNote}`);
+  }
+}
+
+/** "Save to…": choose a folder (the libraries are offered as shortcuts), then save there. */
+function saveSessionTo() {
+  if (!requireSessionName()) return;
+  const shortcuts = [{ name: 'My sessions', path: state.libraryDirs.user }];
+  if (state.libraryDirs.global) shortcuts.unshift({ name: 'Shared library', path: state.libraryDirs.global });
+  openBrowse({
+    title: 'Save the session to folder',
+    files: false,
+    start: state.libraryDirs.global || state.libraryDirs.user,
+    shortcuts,
+    selectLabel: 'Save here',
+    onChoose: (folder) => saveSession(folder),
+  });
+}
+
+// ---- Session library dialog ----------------------------------------------
+
+/** State of the session library dialog. */
+const library = {
+  kind: 'user', // shown library: 'user' | 'global' | 'other'
+  otherFolder: '', // folder picked for "Other folder" (not saved)
+  entries: [], // sessions in the shown folder
+  chosen: '', // path of the highlighted session
+  sort: { key: 'modified', dir: 'desc' },
+};
+
+/** Open the session library at the last shown library. */
+function openLibrary() {
+  el.library.showModal();
+  el.librarySearch.focus();
+  refreshLibrary();
+}
+
+/**
+ * Folder of a library ('' for My sessions: the server uses its sessions_dir).
+ * @param {'user'|'global'|'other'} kind Library.
+ * @returns {string} Folder to list, or '' for the user's library.
+ */
+function libraryFolder(kind) {
+  if (kind === 'global') return state.libraryDirs.global;
+  if (kind === 'other') return library.otherFolder;
+  return '';
+}
+
+/** Fetch and show the sessions of the selected library. */
+async function refreshLibrary() {
+  for (const tab of el.library.querySelectorAll('[role="tab"]')) {
+    tab.setAttribute('aria-selected', String(tab.dataset.lib === library.kind));
+  }
+  el.libraryChange.textContent = library.kind === 'other' ? 'Choose folder…' : 'Change folder…';
+  el.libraryChange.title = library.kind === 'other'
+    ? 'Look at the sessions in any folder (not saved as a setting)'
+    : 'Change this library\'s folder (saved in the settings)';
+  el.libraryError.hidden = true;
+  el.librarySkipped.hidden = true;
+  library.entries = [];
+  const folder = libraryFolder(library.kind);
+  if (library.kind !== 'user' && !folder) {
+    el.libraryFolder.textContent = library.kind === 'global'
+      ? 'No shared library folder is set. Choose one with Change folder… (e.g. a folder on a network drive).'
+      : 'Choose a folder to see its sessions.';
+    renderLibrary();
+    return;
+  }
+  el.libraryFolder.textContent = folder || state.libraryDirs.user;
   try {
-    const session = await api(`/api/sessions/${encodeURIComponent(name)}`);
-    const { known, unknown } = partitionIds(session.selected_ids, state.items);
-    state.selected = new Set(known);
-    state.sessionName = session.name;
-    state.configurationName = session.configuration_name;
-    state.userValues = session.user_values;
-    state.dirty = false;
-    el.sessionName.value = session.name;
-    el.configName.value = session.configuration_name;
-    state.fileNameEdited = false; // a loaded session brings its own name
-    suggestName();
-    renderCurrent();
-    renderRows();
-    if (unknown.length) {
-      showStatus(`Loaded "${session.name}", but ${unknown.length} item(s) are no longer in the database `
-        + `and were skipped: ${unknown.join(', ')}`, 'warn');
-    } else {
-      showStatus(`Loaded "${session.name}" (${known.length} items).`);
+    const data = await api(`/api/library?${new URLSearchParams({ folder })}`);
+    el.libraryFolder.textContent = data.folder;
+    library.entries = data.sessions;
+    if (data.skipped.length) {
+      el.librarySkipped.textContent = `${data.skipped.length} file(s) are not readable sessions and are not listed: `
+        + data.skipped.map((s) => s.file).join(', ');
+      el.librarySkipped.title = data.skipped.map((s) => s.error).join('\n');
+      el.librarySkipped.hidden = false;
     }
   } catch (err) {
-    showStatus(err.message, 'error');
+    el.libraryError.textContent = err.message;
+    el.libraryError.hidden = false;
+  }
+  renderLibrary();
+}
+
+/** Rebuild the library table from the entries, search text and sort order. */
+function renderLibrary() {
+  const shown = sortSessions(filterSessions(library.entries, el.librarySearch.value), library.sort.key, library.sort.dir);
+  if (!shown.some((s) => s.path === library.chosen)) library.chosen = '';
+  for (const th of el.library.querySelectorAll('thead th')) {
+    const key = th.querySelector('button').dataset.sort;
+    th.setAttribute('aria-sort', key !== library.sort.key ? 'none' : library.sort.dir === 'asc' ? 'ascending' : 'descending');
+  }
+  const frag = document.createDocumentFragment();
+  for (const s of shown) {
+    const tr = document.createElement('tr');
+    tr.dataset.path = s.path;
+    tr.tabIndex = 0;
+    tr.title = sessionLabel(s);
+    tr.classList.toggle('chosen', s.path === library.chosen);
+    const cells = [s.name, s.configuration_name, String(s.count), new Date(s.modified).toLocaleString(), s.file];
+    cells.forEach((text, i) => {
+      const td = document.createElement('td');
+      td.textContent = text;
+      if (i === 2) td.className = 'num';
+      tr.append(td);
+    });
+    frag.append(tr);
+  }
+  el.libraryRows.replaceChildren(frag);
+  const total = library.entries.length;
+  el.libraryCount.textContent = shown.length === total ? `${total} session(s)` : `showing ${shown.length} of ${total}`;
+  el.libraryEmpty.hidden = shown.length > 0;
+  el.libraryEmpty.textContent = total ? 'No sessions match the search.' : 'No sessions in this folder.';
+  updateLibraryChoice();
+}
+
+/** Enable Load/Delete for the highlighted session. */
+function updateLibraryChoice() {
+  const entry = library.entries.find((s) => s.path === library.chosen);
+  el.libraryChoice.textContent = entry ? entry.path : '';
+  el.libraryLoad.disabled = !entry;
+  el.libraryDelete.disabled = !entry;
+}
+
+/**
+ * Highlight a session in the library table.
+ * @param {string} path Its file.
+ */
+function chooseLibraryEntry(path) {
+  library.chosen = path;
+  for (const tr of el.libraryRows.children) tr.classList.toggle('chosen', tr.dataset.path === path);
+  updateLibraryChoice();
+}
+
+/** Load the highlighted session and close the library. */
+async function loadFromLibrary() {
+  const path = library.chosen;
+  if (!path || !confirmDiscard()) return;
+  try {
+    const session = await api(`/api/library/session?${new URLSearchParams({ path })}`);
+    el.library.close();
+    applySession(session, library.kind, path);
+  } catch (err) {
+    el.libraryError.textContent = err.message;
+    el.libraryError.hidden = false;
   }
 }
 
-/** Delete the session chosen in the dropdown after confirmation. */
-async function deleteSession() {
-  const name = el.sessionList.value;
-  if (!name || !window.confirm(`Delete session "${name}"? This cannot be undone.`)) return;
+/** Delete the highlighted session file after confirmation. */
+async function deleteFromLibrary() {
+  const entry = library.entries.find((s) => s.path === library.chosen);
+  if (!entry) return;
+  const shared = library.kind === 'global' ? '\n\nThis is the shared library: the session is removed for everyone.' : '';
+  if (!window.confirm(`Delete session "${entry.name}" (${entry.file})? This cannot be undone.${shared}`)) return;
   try {
-    await api(`/api/sessions/${encodeURIComponent(name)}`, { method: 'DELETE' });
-    if (state.sessionName === name) {
+    await api(`/api/library/session?${new URLSearchParams({ path: entry.path })}`, { method: 'DELETE' });
+    const wasCurrent = state.sessionPath === entry.path
+      || (library.kind === 'user' && state.sessionKind === 'user' && state.sessionName === entry.name);
+    if (wasCurrent) {
       state.sessionName = '';
+      state.sessionPath = '';
       state.configurationName = '';
       renderCurrent();
     }
+    showStatus(`Deleted "${entry.name}".`);
+    await refreshLibrary();
     await refreshSessions();
-    showStatus(`Deleted "${name}".`);
   } catch (err) {
-    showStatus(err.message, 'error');
+    el.libraryError.textContent = err.message;
+    el.libraryError.hidden = false;
   }
+}
+
+/** Pick another folder for the shown library (saved in the settings for My sessions / shared library). */
+function changeLibraryFolder() {
+  const kind = library.kind;
+  openBrowse({
+    title: kind === 'user' ? 'Choose the folder for My sessions'
+      : kind === 'global' ? 'Choose the shared library folder' : 'Choose a folder with session files',
+    files: false,
+    start: libraryFolder(kind) || state.libraryDirs.user,
+    onChoose: async (folder) => {
+      if (kind === 'other') {
+        library.otherFolder = folder;
+      } else {
+        try {
+          const cfg = await sendJson('/api/settings', 'PUT',
+            kind === 'user' ? { sessions_dir: folder } : { global_sessions_dir: folder });
+          state.libraryDirs = { user: cfg.sessions_dir, global: cfg.global_sessions_dir };
+          if (kind === 'user') await refreshSessions();
+          showStatus(`${kind === 'user' ? 'My sessions' : 'Shared library'} folder set to ${folder}.`);
+        } catch (err) {
+          el.libraryError.textContent = err.message;
+          el.libraryError.hidden = false;
+          return;
+        }
+      }
+      refreshLibrary();
+    },
+  });
+}
+
+/** Wire up the session library dialog. */
+function bindLibraryEvents() {
+  el.libraryBtn.addEventListener('click', openLibrary);
+  el.libraryClose.addEventListener('click', () => el.library.close());
+  el.libraryLoad.addEventListener('click', loadFromLibrary);
+  el.libraryDelete.addEventListener('click', deleteFromLibrary);
+  el.libraryChange.addEventListener('click', changeLibraryFolder);
+  el.librarySearch.addEventListener('input', renderLibrary);
+  for (const tab of el.library.querySelectorAll('[role="tab"]')) {
+    tab.addEventListener('click', () => {
+      library.kind = tab.dataset.lib;
+      library.chosen = '';
+      refreshLibrary();
+      // "Other folder" without a folder yet: go straight to choosing one.
+      if (library.kind === 'other' && !library.otherFolder) changeLibraryFolder();
+    });
+  }
+  el.library.querySelector('thead').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-sort]');
+    if (!btn) return;
+    const key = btn.dataset.sort;
+    // Same column flips the direction; a new column starts ascending (dates/counts: newest/largest first).
+    if (library.sort.key === key) library.sort.dir = library.sort.dir === 'asc' ? 'desc' : 'asc';
+    else library.sort = { key, dir: key === 'modified' || key === 'count' ? 'desc' : 'asc' };
+    renderLibrary();
+  });
+  el.libraryRows.addEventListener('click', (e) => {
+    const tr = e.target.closest('tr');
+    if (tr) chooseLibraryEntry(tr.dataset.path);
+  });
+  el.libraryRows.addEventListener('dblclick', (e) => {
+    const tr = e.target.closest('tr');
+    if (!tr) return;
+    chooseLibraryEntry(tr.dataset.path);
+    loadFromLibrary();
+  });
+  el.libraryRows.addEventListener('keydown', (e) => {
+    const tr = e.target.closest('tr');
+    if (!tr) return;
+    if (e.key === 'Enter') {
+      chooseLibraryEntry(tr.dataset.path);
+      loadFromLibrary();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const next = e.key === 'ArrowDown' ? tr.nextElementSibling : tr.previousElementSibling;
+      if (next) { next.focus(); chooseLibraryEntry(next.dataset.path); }
+      e.preventDefault();
+    }
+  });
+  el.libraryRows.addEventListener('focusin', (e) => {
+    const tr = e.target.closest('tr');
+    if (tr) chooseLibraryEntry(tr.dataset.path);
+  });
 }
 
 /** Propose a file name from the configuration/session name unless the user typed one. */
 function suggestName() {
   if (!state.fileNameEdited) el.fileName.value = suggestFileName(el.configName.value, el.sessionName.value);
+  el.fileNameReset.disabled = !state.fileNameEdited;
+}
+
+/** Go back to following the configuration/session name (Reset name, session load, emptied field). */
+function useSuggestedName() {
+  state.fileNameEdited = false;
+  suggestName();
 }
 
 /**
@@ -499,6 +779,7 @@ function suggestName() {
  */
 async function exportDocument() {
   el.exportBtn.disabled = true;
+  if (!el.fileName.value.trim()) useSuggestedName(); // e.g. Enter pressed in an emptied field
   const body = {
     selected_ids: [...state.selected],
     user_values: state.userValues,
@@ -519,6 +800,11 @@ async function exportDocument() {
       result = await sendJson('/api/export', 'POST', { ...body, overwrite: true });
     }
     showStatus(`Saved ${result.count} item${result.count === 1 ? '' : 's'} to ${result.path}`);
+    state.exportedFile = result.file_name;
+    el.openDoc.title = `Open ${result.file_name} in Word`;
+    el.openFolder.title = `Show ${result.file_name} in its folder`;
+    el.openDoc.hidden = false;
+    el.openFolder.hidden = false;
   } catch (err) {
     showStatus(err.message, 'error');
   } finally {
@@ -527,14 +813,34 @@ async function exportDocument() {
 }
 
 /**
+ * Open the last exported document, or show it in its folder.
+ * @param {boolean} folder True for the folder.
+ */
+async function openExported(folder) {
+  if (!state.exportedFile) return;
+  try {
+    await sendJson('/api/open', 'POST', { file_name: state.exportedFile, folder });
+    showStatus(folder ? `Opened the folder of ${state.exportedFile}.` : `Opening ${state.exportedFile}…`);
+  } catch (err) {
+    showStatus(err.message, 'error');
+  }
+}
+
+/**
  * Put settings into the panel and remember which database they describe.
- * @param {{items_file:string,id_column:string,output_dir:string}} cfg Settings from the server.
+ * @param {object} cfg Settings from the server (see SettingsResponse).
  */
 function showSettings(cfg) {
   el.itemsFile.value = cfg.items_file;
   el.idColumn.value = cfg.id_column;
+  el.templateFile.value = cfg.template_file;
+  el.layoutFile.value = cfg.table_layout_file;
+  el.layoutSheet.value = cfg.table_layout_sheet;
+  el.fontSize.value = cfg.table_font_size ? String(cfg.table_font_size) : '';
   el.outputDir.value = cfg.output_dir;
-  state.savedDatabase = `${cfg.items_file}\n${cfg.id_column}`;
+  state.libraryDirs = { user: cfg.sessions_dir, global: cfg.global_sessions_dir };
+  // Everything that changes the columns: a change reloads the items.
+  state.savedDatabase = [cfg.items_file, cfg.id_column, cfg.table_layout_file, cfg.table_layout_sheet].join('\n');
 }
 
 /** Fill the settings panel from the server. */
@@ -550,12 +856,23 @@ async function loadSettings() {
 
 /** Save the settings; reload the items if the database changed. */
 async function saveSettings() {
+  // A number field reports '' both when empty and when its text is not a number ("8,5"
+  // in some locales); `badInput` tells them apart, so a typo is not saved as "template font".
+  if (el.fontSize.validity.badInput) {
+    showStatus('Table font size: enter a number such as 8 or 8.5 (empty = template font).', 'error');
+    el.fontSize.focus();
+    return;
+  }
   el.settingsSave.disabled = true;
   try {
     const before = state.savedDatabase;
     const cfg = await sendJson('/api/settings', 'PUT', {
       items_file: el.itemsFile.value.trim(),
       id_column: el.idColumn.value.trim(),
+      template_file: el.templateFile.value.trim(),
+      table_layout_file: el.layoutFile.value.trim(),
+      table_layout_sheet: el.layoutSheet.value.trim(),
+      table_font_size: el.fontSize.value === '' ? 0 : Number(el.fontSize.value),
       output_dir: el.outputDir.value.trim(),
     });
     showSettings(cfg);
@@ -569,7 +886,7 @@ async function saveSettings() {
         showStatus(`Settings saved. ${dropped.length} selected item(s) are not in the new database `
           + `and were deselected: ${dropped.join(', ')}`, 'warn');
       } else {
-        showStatus(`Settings saved. Loaded ${state.items.length} items from the new database.`);
+        showStatus(`Settings saved. Loaded ${state.items.length} items.`);
       }
     } catch (err) {
       state.items = [];
@@ -577,7 +894,7 @@ async function saveSettings() {
       el.source.textContent = `Database: ${cfg.items_file.split(/[\\/]/).pop()} (not loaded)`;
       renderHeader();
       renderRows();
-      showStatus(`Settings saved, but the database cannot be used: ${err.message}`, 'error');
+      showStatus(`Settings saved, but the items cannot be loaded: ${err.message}`, 'error');
     }
   } catch (err) {
     showStatus(err.message, 'error');
@@ -589,17 +906,20 @@ async function saveSettings() {
 // ---- Browse dialog -------------------------------------------------------
 
 /** State of the open browse dialog. */
-const browse = { files: true, path: '', chosen: '', onChoose: null };
+const browse = { files: true, ext: '.xlsx', shortcuts: [], path: '', chosen: '', onChoose: null };
 
 /**
  * Open the browse dialog.
- * @param {{title:string, files:boolean, start:string, onChoose:(path:string)=>void}} opts
- *   `files`: choose an .xlsx file (true) or a folder (false); `start`: folder or file to open at.
+ * @param {{title:string, files:boolean, ext?:string, start:string, shortcuts?:Array<{name:string,path:string}>,
+ *   selectLabel?:string, onChoose:(path:string)=>void}} opts
+ *   `files`: choose a file (true) or a folder (false); `ext`: extension of the files to list
+ *   (default `.xlsx`); `start`: folder or file to open at; `shortcuts`: extra "Go to…" entries
+ *   listed first; `selectLabel`: text of the Select button.
  */
-function openBrowse({ title, files, start, onChoose }) {
-  Object.assign(browse, { files, chosen: '', onChoose });
+function openBrowse({ title, files, ext = '.xlsx', start, shortcuts = [], selectLabel, onChoose }) {
+  Object.assign(browse, { files, ext, shortcuts, chosen: '', onChoose });
   el.browseTitle.textContent = title;
-  el.browseSelect.textContent = files ? 'Select file' : 'Select this folder';
+  el.browseSelect.textContent = selectLabel || (files ? 'Select file' : 'Select this folder');
   el.browse.showModal();
   navigate(start);
 }
@@ -611,7 +931,7 @@ function openBrowse({ title, files, start, onChoose }) {
 async function navigate(path) {
   el.browseError.hidden = true;
   try {
-    const q = new URLSearchParams({ path, files: String(browse.files) });
+    const q = new URLSearchParams({ path, files: String(browse.files), ext: browse.ext });
     const listing = await api(`/api/fs?${q}`);
     browse.path = listing.path;
     // Keep the chosen file when (re)opening at it; otherwise reset the choice.
@@ -621,7 +941,7 @@ async function navigate(path) {
     el.browseUp.disabled = !listing.parent;
     el.browseUp.dataset.path = listing.parent || '';
     el.browseRoots.replaceChildren(new Option('Go to…', ''),
-      ...listing.roots.map((r) => new Option(r.name, r.path)));
+      ...[...browse.shortcuts, ...listing.roots].map((r) => new Option(r.name, r.path)));
     renderBrowseList(listing);
   } catch (err) {
     el.browseError.textContent = err.message;
@@ -651,7 +971,7 @@ function renderBrowseList(listing) {
     frag.append(li);
   }
   if (items.length === 0) {
-    frag.append(make('li', browse.files ? 'No folders or .xlsx files here.' : 'No sub-folders here.', 'empty'));
+    frag.append(make('li', browse.files ? `No folders or ${browse.ext} files here.` : 'No sub-folders here.', 'empty'));
   }
   el.browseList.replaceChildren(frag);
 }
@@ -659,7 +979,7 @@ function renderBrowseList(listing) {
 /** Show what "Select" will pick and enable it accordingly. */
 function updateBrowseChoice() {
   const pick = browse.files ? browse.chosen : browse.path;
-  el.browseChoice.textContent = pick || (browse.files ? 'Choose an .xlsx file' : '');
+  el.browseChoice.textContent = pick || (browse.files ? `Choose a ${browse.ext} file` : '');
   el.browseSelect.disabled = !pick;
 }
 
@@ -677,6 +997,15 @@ function bindSettingsEvents() {
   el.itemsBrowse.addEventListener('click', () => openBrowse({
     title: 'Choose the item database (.xlsx)', files: true, start: el.itemsFile.value.trim(),
     onChoose: (p) => { el.itemsFile.value = p; el.settingsSave.focus(); },
+  }));
+  el.layoutBrowse.addEventListener('click', () => openBrowse({
+    title: 'Choose the workbook with the Word layout sheet (.xlsx)', files: true,
+    start: el.layoutFile.value.trim() || el.itemsFile.value.trim(),
+    onChoose: (p) => { el.layoutFile.value = p; el.settingsSave.focus(); },
+  }));
+  el.templateBrowse.addEventListener('click', () => openBrowse({
+    title: 'Choose the Word template (.docx)', files: true, ext: '.docx', start: el.templateFile.value.trim(),
+    onChoose: (p) => { el.templateFile.value = p; el.settingsSave.focus(); },
   }));
   el.outputBrowse.addEventListener('click', () => openBrowse({
     title: 'Choose the output folder', files: false, start: el.outputDir.value.trim(),
@@ -736,6 +1065,7 @@ function bindEvents() {
   el.exitBtn.addEventListener('click', exitTool);
   bindFilterEvents();
   bindSettingsEvents();
+  bindLibraryEvents();
   el.rows.addEventListener('change', (e) => {
     const tr = e.target.closest('tr');
     if (!tr || e.target.type !== 'checkbox') return; // text cells are handled by 'input'
@@ -780,20 +1110,24 @@ function bindEvents() {
     renderRows();
   });
   el.clear.addEventListener('click', () => { changeSelection(new Set()); renderRows(); });
-  el.sessionList.addEventListener('change', updateSummary);
-  el.save.addEventListener('click', saveSession);
-  el.load.addEventListener('click', loadSession);
-  el.del.addEventListener('click', deleteSession);
+  el.save.addEventListener('click', () => saveSession());
+  el.saveTo.addEventListener('click', saveSessionTo);
   el.exportBtn.addEventListener('click', exportDocument);
+  el.openDoc.addEventListener('click', () => openExported(false));
+  el.openFolder.addEventListener('click', () => openExported(true));
   el.sessionName.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveSession(); });
   el.configName.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveSession(); });
   el.configName.addEventListener('input', () => { state.dirty = true; suggestName(); });
   el.sessionName.addEventListener('input', suggestName);
   el.fileName.addEventListener('input', () => {
-    // An emptied field goes back to following the configuration/session name.
-    state.fileNameEdited = el.fileName.value.trim() !== '';
-    if (!state.fileNameEdited) suggestName();
+    // Any typing, including deleting the last character, keeps the user's text. Refilling the
+    // suggestion while the field is empty made it snap back to the old name mid-edit (Windows test).
+    state.fileNameEdited = true;
+    el.fileNameReset.disabled = false;
   });
+  // Only a field that is *left* empty goes back to following the configuration/session name.
+  el.fileName.addEventListener('blur', () => { if (!el.fileName.value.trim()) useSuggestedName(); });
+  el.fileNameReset.addEventListener('click', () => { useSuggestedName(); el.fileName.focus(); });
   el.fileName.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !el.exportBtn.disabled) exportDocument(); });
   window.addEventListener('beforeunload', (e) => { if (state.dirty) e.preventDefault(); });
 }
@@ -813,16 +1147,31 @@ async function loadItems() {
   }
   const { known, unknown } = partitionIds([...state.selected], state.items);
   if (unknown.length) changeSelection(new Set(known));
-  el.source.textContent = `Database: ${data.source}`;
+  const word = data.layout
+    ? `Word table: ${data.layout} (${data.word_columns.length} columns)`
+    : 'Word table: automatic (all columns)';
+  el.source.textContent = `Database: ${data.source} · ${word}`;
+  el.source.title = `Columns in the Word table: ${data.word_columns.join(', ')}`;
   renderHeader();
   renderRows();
   return unknown;
+}
+
+/** Show the app version in the header, so the user can see which version the browser runs. */
+async function showVersion() {
+  try {
+    const info = await api('/api/info');
+    el.version.textContent = `v${info.version}`;
+  } catch {
+    // Cosmetic only; errors from the real requests are reported by them.
+  }
 }
 
 /** Load items and sessions, then show the page. */
 async function init() {
   bindEvents();
   suggestName();
+  showVersion(); // not awaited: the header text is cosmetic
   // Settings first and independently: if the database path is wrong, they are how to fix it.
   await loadSettings();
   try {
