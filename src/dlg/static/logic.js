@@ -239,3 +239,38 @@ export function suggestFileName(configurationName, sessionName) {
   const cleaned = base.replace(BAD_FILENAME_CHARS, '_').slice(0, 100).replace(/[ .]+$/, '');
   return cleaned || 'declared_list';
 }
+
+/**
+ * Filter the session library by search text. Every whitespace-separated term
+ * must appear in the name, configuration, file name or database (case-insensitive).
+ * @param {Array<{name:string,configuration_name:string,file:string,source:string}>} sessions Library entries.
+ * @param {string} query Typed search text.
+ * @returns {Array} Matching entries, in the given order.
+ */
+export function filterSessions(sessions, query) {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return sessions;
+  return sessions.filter((s) => {
+    const text = [s.name, s.configuration_name, s.file, s.source].join(' ').toLowerCase();
+    return terms.every((t) => text.includes(t));
+  });
+}
+
+/**
+ * Sort session library entries by one column. Text sorts naturally and
+ * case-insensitively ("Rig 2" before "Rig 10"); ties keep the newest first.
+ * @param {Array} sessions Library entries (not modified).
+ * @param {'name'|'configuration_name'|'count'|'modified'|'file'} key Column to sort by.
+ * @param {'asc'|'desc'} dir Direction.
+ * @returns {Array} A sorted copy.
+ */
+export function sortSessions(sessions, key, dir) {
+  const sign = dir === 'desc' ? -1 : 1;
+  const cmp = (a, b) => {
+    if (key === 'count') return a.count - b.count;
+    // ISO timestamps from the server sort correctly as text.
+    if (key === 'modified') return a.modified < b.modified ? -1 : a.modified > b.modified ? 1 : 0;
+    return compareValues(a[key] ?? '', b[key] ?? '');
+  };
+  return [...sessions].sort((a, b) => sign * cmp(a, b) || (a.modified < b.modified ? 1 : a.modified > b.modified ? -1 : 0));
+}

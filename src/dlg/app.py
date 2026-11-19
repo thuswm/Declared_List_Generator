@@ -60,6 +60,8 @@ class SettingsResponse(BaseModel):
         id_column: Header of the database column holding the unique item IDs.
         template_file: Word template with the ``{{DECLARED_LIST}}`` placeholder.
         output_dir: Folder for generated Word documents.
+        sessions_dir: The user's session library folder.
+        global_sessions_dir: Shared session library folder ('' if not set).
         config_file: Configuration file the settings are saved to ('' if none).
     """
 
@@ -67,6 +69,8 @@ class SettingsResponse(BaseModel):
     id_column: str
     template_file: str
     output_dir: str
+    sessions_dir: str
+    global_sessions_dir: str
     config_file: str
 
 
@@ -79,12 +83,17 @@ class SettingsUpdate(BaseModel):
         template_file: New Word template (absolute path to an existing .docx
             containing the placeholder).
         output_dir: New output folder (absolute path to an existing folder).
+        sessions_dir: New user session library (absolute path to an existing folder).
+        global_sessions_dir: New shared session library (existing folder, or
+            '' to unset it).
     """
 
     items_file: str | None = None
     id_column: str | None = Field(default=None, max_length=200)
     template_file: str | None = None
     output_dir: str | None = None
+    sessions_dir: str | None = None
+    global_sessions_dir: str | None = None
 
 
 class InfoResponse(BaseModel):
@@ -129,6 +138,44 @@ class SessionSummary(BaseModel):
     modified: datetime
     source: str
     count: int
+
+
+class LibraryEntry(SessionSummary):
+    """A session file in a library folder (``GET /api/library``).
+
+    Attributes:
+        file: File name, e.g. ``Project A.json``.
+        path: Full path, used to load or delete exactly this file.
+    """
+
+    file: str
+    path: str
+
+
+class SkippedFile(BaseModel):
+    """A ``.json`` file in a library folder that is not a readable session.
+
+    Attributes:
+        file: File name.
+        error: Why it was skipped.
+    """
+
+    file: str
+    error: str
+
+
+class LibraryResponse(BaseModel):
+    """Response of ``GET /api/library``.
+
+    Attributes:
+        folder: The folder that was listed.
+        sessions: Readable sessions, most recently modified first.
+        skipped: Files that could not be read as sessions.
+    """
+
+    folder: str
+    sessions: list[LibraryEntry]
+    skipped: list[SkippedFile]
 
 
 class SaveSessionRequest(BaseModel):
@@ -250,7 +297,6 @@ def create_app(
         The configured application.
     """
     cfg = settings or Config()
-    store = SessionStore(cfg.sessions_dir)
     app = FastAPI(title="Declared List Generator", version=get_version())
 
     @app.middleware("http")
@@ -270,6 +316,10 @@ def create_app(
     def source() -> ExcelItemSource:
         """Return the item source for the *current* settings (they can change at runtime)."""
         return ExcelItemSource(cfg.items_file, id_column=cfg.id_column)
+
+    def store() -> SessionStore:
+        """Return the session store for the *current* user library (it can change at runtime)."""
+        return SessionStore(cfg.sessions_dir)
 
     def load_table() -> ItemTable:
         """Read the item database (fresh each call so file edits show up).
@@ -309,7 +359,7 @@ def create_app(
                 source=s.source,
                 count=len(s.selected_ids),
             )
-            for s in store.list()
+            for s in store().list()
         ]
 
     # ":path" so names containing "/" (sent URL-encoded as %2F) still match the route.
@@ -317,7 +367,7 @@ def create_app(
     def get_session(name: str) -> Session:
         """Return one saved session."""
         try:
-            return store.load(name)
+            return store().load(name)
         except SessionNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except SessionError as exc:
@@ -339,8 +389,8 @@ def create_app(
             user_values=req.user_values,
         )
         try:
-            store.save(session)
-            return store.load(req.name)  # reflects de-duplication and timestamps
+            store().save(session)
+            return store().load(req.name)  # reflects de-duplication and timestamps
         except SessionNotFoundError as exc:  # pragma: no cover - just written
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         except SessionError as exc:
@@ -350,7 +400,55 @@ def create_app(
     def delete_session(name: str) -> Response:
         """Delete a saved session."""
         try:
-            store.delete(name)
+            store().delete(name)
+        except SessionNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except SessionError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return Response(status_code=204)
+
+    @app.get("/api/library", response_model=LibraryResponse, dependencies=[Depends(require_local)])
+    def library(folder: str = "") -> LibraryResponse:
+        """List the session files in a library folder.
+
+        Args:
+            folder: Folder to list; empty for the user's library (``sessions_dir``),
+                which may not exist yet (it is created on the first save).
+        """
+        if folder.strip():
+            path = _checked_path(folder, "Session folder")
+            if not path.is_dir():
+                raise HTTPException(status_code=404, detail=f"Session folder not found: {path}")
+        else:
+            path = cfg.sessions_dir
+        result = SessionStore(path).scan()
+        return LibraryResponse(
+            folder=str(path),
+            sessions=[
+                LibraryEntry(
+                    name=s.name, configuration_name=s.configuration_name, modified=s.modified,
+                    source=s.source, count=len(s.selected_ids), file=p.name, path=str(p),
+                )
+                for p, s in result.sessions
+            ],
+            skipped=[SkippedFile(file=p.name, error=e) for p, e in result.skipped],
+        )
+
+    @app.get("/api/library/session", response_model=Session, dependencies=[Depends(require_local)])
+    def library_session(path: str) -> Session:
+        """Return the session stored in one file (from any folder)."""
+        try:
+            return SessionStore.read_file(_checked_path(path, "Session file"))
+        except SessionNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except SessionError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.delete("/api/library/session", status_code=204, dependencies=[Depends(require_local)])
+    def delete_library_session(path: str) -> Response:
+        """Delete one session file (from any folder)."""
+        try:
+            SessionStore.delete_file(_checked_path(path, "Session file"))
         except SessionNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except SessionError as exc:
@@ -394,23 +492,26 @@ def create_app(
             id_column=cfg.id_column,
             template_file=str(cfg.template_file),
             output_dir=str(cfg.output_dir),
+            sessions_dir=str(cfg.sessions_dir),
+            global_sessions_dir=str(cfg.global_sessions_dir) if cfg.global_sessions_dir else "",
             config_file=str(config_path) if config_path else "",
         )
 
     @app.get("/api/settings", response_model=SettingsResponse, dependencies=[Depends(require_local)])
     def get_settings() -> SettingsResponse:
-        """Return the item database, ID column, Word template and output folder."""
+        """Return the GUI-editable settings."""
         return current_settings()
 
     @app.put("/api/settings", response_model=SettingsResponse, dependencies=[Depends(require_local)])
     def put_settings(req: SettingsUpdate) -> SettingsResponse:
-        """Change the item database, ID column, Word template and/or output folder and save them to the config file.
+        """Change the GUI-editable settings and save them to the config file.
 
         Everything is validated before anything changes, so a bad value never
         leaves the settings half-updated.
         """
         items_file, id_column, output_dir = cfg.items_file, cfg.id_column, cfg.output_dir
         template_file = cfg.template_file
+        sessions_dir, global_sessions_dir = cfg.sessions_dir, cfg.global_sessions_dir
         if req.items_file is not None:
             items_file = _checked_path(req.items_file, "Item database")
             if items_file.suffix.lower() != ".xlsx":
@@ -437,14 +538,30 @@ def create_app(
             output_dir = _checked_path(req.output_dir, "Output folder")
             if not output_dir.is_dir():
                 raise HTTPException(status_code=400, detail=f"Output folder not found: {output_dir}")
-        old = (cfg.items_file, cfg.id_column, cfg.template_file, cfg.output_dir)
-        cfg.items_file, cfg.id_column, cfg.template_file, cfg.output_dir = (
-            items_file, id_column, template_file, output_dir)
+        if req.sessions_dir is not None and req.sessions_dir.strip() != str(cfg.sessions_dir):
+            sessions_dir = _checked_path(req.sessions_dir, "My sessions folder")
+            if not sessions_dir.is_dir():
+                raise HTTPException(status_code=400, detail=f"My sessions folder not found: {sessions_dir}")
+        current_global = str(cfg.global_sessions_dir) if cfg.global_sessions_dir else ""
+        if req.global_sessions_dir is not None and req.global_sessions_dir.strip() != current_global:
+            if not req.global_sessions_dir.strip():
+                global_sessions_dir = None  # unset
+            else:
+                global_sessions_dir = _checked_path(req.global_sessions_dir, "Shared library folder")
+                if not global_sessions_dir.is_dir():
+                    raise HTTPException(
+                        status_code=400, detail=f"Shared library folder not found: {global_sessions_dir}")
+        names = ("items_file", "id_column", "template_file", "output_dir", "sessions_dir", "global_sessions_dir")
+        old = {n: getattr(cfg, n) for n in names}
+        new = (items_file, id_column, template_file, output_dir, sessions_dir, global_sessions_dir)
+        for n, value in zip(names, new):
+            setattr(cfg, n, value)
         if config_path is not None:
             try:
                 save_config(cfg, config_path)
             except ConfigError as exc:
-                cfg.items_file, cfg.id_column, cfg.template_file, cfg.output_dir = old  # keep memory and file in step
+                for n, value in old.items():  # keep memory and file in step
+                    setattr(cfg, n, value)
                 raise HTTPException(status_code=500, detail=str(exc)) from exc
         return current_settings()
 

@@ -50,7 +50,9 @@ class Config:
     Attributes:
         items_file: Excel item database.
         template_file: Word template containing the placeholder.
-        sessions_dir: Folder for session JSON files.
+        sessions_dir: Folder for session JSON files (the user's library).
+        global_sessions_dir: Shared session library (e.g. on a network drive);
+            None when not set. Written as ``""`` in the file.
         output_dir: Folder where generated Word documents are written.
         id_column: Header of the item-database column holding the unique item IDs.
         host: Interface the server binds to (localhost: no authentication).
@@ -60,13 +62,30 @@ class Config:
     items_file: Path = field(default_factory=lambda: _default_path("data/items.xlsx"))
     template_file: Path = field(default_factory=lambda: _default_path("templates/declared_list_template.docx"))
     sessions_dir: Path = field(default_factory=lambda: _default_path("sessions"))
+    global_sessions_dir: Path | None = None
     output_dir: Path = field(default_factory=lambda: _default_path("output"))
     id_column: str = "ID"
     host: str = "127.0.0.1"
     port: int = 8000
 
 
-_PATH_KEYS = ("items_file", "template_file", "sessions_dir", "output_dir")
+_PATH_KEYS = ("items_file", "template_file", "sessions_dir", "global_sessions_dir", "output_dir")
+#: Path settings that may be unset (``""`` in the file, None in memory).
+_OPTIONAL_PATH_KEYS = ("global_sessions_dir",)
+
+
+def _file_value(value: object) -> str | int:
+    """Convert a setting to what is written in the file (paths as text, None as ``""``).
+
+    Args:
+        value: Setting value.
+
+    Returns:
+        A string or integer for :func:`_toml_value`.
+    """
+    if value is None:
+        return ""
+    return str(value) if isinstance(value, Path) else value  # type: ignore[return-value]
 
 
 def default_config_path(platform: str | None = None, env: dict[str, str] | None = None) -> Path:
@@ -118,8 +137,7 @@ def save_config(config: Config, path: Path) -> None:
     """
     lines = [_HEADER]
     for f in fields(config):
-        value = getattr(config, f.name)
-        lines.append(f"{f.name} = {_toml_value(str(value) if isinstance(value, Path) else value)}")
+        lines.append(f"{f.name} = {_toml_value(_file_value(getattr(config, f.name)))}")
     tmp = path.with_name(path.name + ".tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -165,7 +183,9 @@ def load_config(path: Path | None = None) -> Config:
         expected = int if f.name == "port" else str
         if not isinstance(value, expected) or isinstance(value, bool):
             raise ConfigError(f"Configuration file {path}: '{f.name}' must be a {expected.__name__}.")
-        if f.name in _PATH_KEYS:
+        if f.name in _OPTIONAL_PATH_KEYS and not value.strip():
+            value = None
+        elif f.name in _PATH_KEYS:
             value = Path(value).expanduser()
             if not value.is_absolute():
                 value = path.parent / value
@@ -195,8 +215,7 @@ def _append_missing_keys(path: Path, data: dict[str, Any]) -> None:
         return
     lines = ["", "# Added by a newer version of the tool (defaults):"]
     for f in missing:
-        value = getattr(defaults, f.name)
-        lines.append(f"{f.name} = {_toml_value(str(value) if isinstance(value, Path) else value)}")
+        lines.append(f"{f.name} = {_toml_value(_file_value(getattr(defaults, f.name)))}")
     try:
         text = path.read_text(encoding="utf-8")
         sep = "" if text.endswith("\n") or not text else "\n"

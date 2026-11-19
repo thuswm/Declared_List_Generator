@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -79,6 +80,19 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
         # v1 -> v2: new fields configuration_name and user_values; model defaults fill them.
         data["schema_version"] = 2
     return data
+
+
+@dataclass
+class ScanResult:
+    """Result of :meth:`SessionStore.scan`.
+
+    Attributes:
+        sessions: ``(file, session)`` pairs, most recently modified first.
+        skipped: ``(file, error message)`` for files that are not valid sessions.
+    """
+
+    sessions: list[tuple[Path, Session]] = field(default_factory=list)
+    skipped: list[tuple[Path, str]] = field(default_factory=list)
 
 
 class SessionStore:
@@ -242,15 +256,69 @@ class SessionStore:
         Returns:
             Parsed sessions.
         """
+        return [session for _, session in self.scan().sessions]
+
+    def scan(self) -> ScanResult:
+        """Read every session file in the folder.
+
+        Unlike :meth:`list`, files that cannot be read are reported, so the
+        session library can tell the user about them.
+
+        Returns:
+            Readable sessions with their files (most recently modified first)
+            and the files that were skipped. A missing folder gives an empty result.
+        """
+        result = ScanResult()
         if not self.directory.is_dir():
-            return []
-        sessions: list[Session] = []
-        for path in self.directory.glob("*.json"):
+            return result
+        for path in sorted(self.directory.glob("*.json")):
             try:
-                sessions.append(self._read(path))
-            except SessionError:
-                continue
-        return sorted(sessions, key=lambda s: s.modified, reverse=True)
+                result.sessions.append((path, self._read(path)))
+            except SessionError as exc:
+                result.skipped.append((path, str(exc)))
+        result.sessions.sort(key=lambda entry: entry[1].modified, reverse=True)
+        return result
+
+    @staticmethod
+    def read_file(path: str | Path) -> Session:
+        """Read a session file given by its path (any folder).
+
+        Args:
+            path: The ``.json`` session file.
+
+        Returns:
+            The parsed session, migrated to the current schema version.
+
+        Raises:
+            SessionNotFoundError: If the file does not exist.
+            SessionError: If it is not a ``.json`` file or not a valid session.
+        """
+        path = Path(path)
+        if path.suffix.lower() != ".json":
+            raise SessionError(f"Not a session file (.json): {path.name}")
+        if not path.is_file():
+            raise SessionNotFoundError(f"Session file not found: {path}")
+        return SessionStore._read(path)
+
+    @staticmethod
+    def delete_file(path: str | Path) -> None:
+        """Delete a session file given by its path, after checking it is a session.
+
+        The check makes sure a mistaken path can never delete an unrelated file.
+
+        Args:
+            path: The ``.json`` session file.
+
+        Raises:
+            SessionNotFoundError: If the file does not exist.
+            SessionError: If it is not a valid session file or cannot be deleted.
+        """
+        path = Path(path)
+        SessionStore.read_file(path)
+        try:
+            path.unlink()
+        except OSError as exc:
+            raise SessionError(f"Cannot delete {path.name}: {exc.strerror or exc}") from exc
 
     def delete(self, name: str) -> None:
         """Delete a session.
