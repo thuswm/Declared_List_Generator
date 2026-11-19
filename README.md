@@ -17,7 +17,7 @@ All commands are run from the project folder. Each setup step is needed only onc
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'          # drop '[dev]' if you don't need the tests
-.venv/bin/python tools/make_examples.py    # writes data/items.xlsx and the example template
+.venv/bin/python tools/make_examples.py    # writes the example database, table layout and template
 ```
 
 ### Windows (PowerShell or Command Prompt)
@@ -86,9 +86,13 @@ To open it for editing: `xdg-open ~/.config/dlg/config.toml` (Linux),
 |-----------------|--------------------------------------------|------------------------------------------|
 | `items_file`    | `data/items.xlsx` (in the project)         | Excel item database                      |
 | `template_file` | `templates/declared_list_template.docx`    | Word template                            |
-| `sessions_dir`  | `sessions/` (in the project)               | Folder for session files                 |
+| `sessions_dir`  | `sessions/` (in the project)               | Folder for session files ("My sessions") |
+| `global_sessions_dir` | empty                                | Shared session library, e.g. on a network drive ("Shared library") |
 | `output_dir`    | `output/` (in the project)                 | Folder for generated Word documents      |
 | `id_column`     | `ID`                                       | Header of the item-database column holding the unique item IDs |
+| `table_layout_file` | empty                                  | Workbook with the Word table layout; empty = the layout sheet inside the item database |
+| `table_layout_sheet` | `Word layout`                         | Name of the layout sheet                 |
+| `table_font_size` | `0`                                      | Word table font size in pt (4–72, steps of 0.5); 0 = the template's size |
 | `host`, `port`  | `127.0.0.1`, `8000`                        | Where the server listens                 |
 
 Relative paths in the file are resolved against the folder containing it.
@@ -103,8 +107,9 @@ are appended to an existing file with their defaults, so you can see and change 
 ## Using it
 
 **Settings** (collapsible panel at the top): choose the **Item database**
-(.xlsx) and the **Output folder** with **Browse…**, set the **ID column**, and
-**Save settings**. They are written to your configuration file and take effect
+(.xlsx), **Word template** (.docx), **Table layout** (.xlsx, optional) and
+**Output folder** with **Browse…**, set the **ID column**, **Layout sheet** and
+**Table font size**, and **Save settings**. They are written to your configuration file and take effect
 immediately: the new database is loaded, and selected items that are not in it
 are deselected. If the database cannot be loaded at start-up, the panel opens
 by itself so the path or ID column can be fixed. Settings and browsing only
@@ -125,16 +130,25 @@ work from the computer running the tool.
      session, are searchable and filterable, and go into the Word table.
 2. Enter a **Name** and, optionally, a **Configuration** (what the items
    belong to, e.g. `Rig 7, build B`) and **Save** to store the selection as a
-   session. **Load** a saved session later; the list shows each session's
-   configuration, and the page header shows the current session and configuration.
+   session in My sessions. **Save to…** saves it into a folder you choose
+   (the shared library, My sessions or any folder) and asks before replacing
+   a file there. The page header shows the current session and configuration.
+   - **Session library…** lists the sessions of a folder: **My sessions**,
+     the **Shared library** (`global_sessions_dir`; **Change folder…** sets
+     it) or any **Other folder**. Search by name, configuration or file, sort
+     by clicking a column header, and **Load** or **Delete** the selected session.
 3. Check the **File name** (suggested from the configuration name, else the
    session name; `.docx` is added) and click **Export Word document**. The
    file is written to the output folder (created if needed) and the full path
    is shown. If a file of that name exists you are asked before it is replaced;
    if it is open in Word, close it and export again. Characters not allowed in
-   Windows file names (`< > : " / \ | ? *`) are refused.
+   Windows file names (`< > : " / \ | ? *`) are refused. Emptying the field
+   and leaving it brings the suggestion back (as does **Reset name**).
+   After the export, **Open document** opens it in Word and **Open folder**
+   shows it in Explorer (Finder on macOS, the file manager on Linux).
 
 The Excel file is re-read on every page load, so you can edit it and refresh.
+The app version is shown in the page header.
 
 ## File formats
 
@@ -258,11 +272,13 @@ src/dlg/
   models.py        Column, Item, ItemTable and Session models
   sources/         ItemSource interface and the Excel implementation
   sessions.py      session JSON storage
+  layout.py        Word table layout sheet (multi-level header)
   filebrowser.py   folder listing for the Browse dialog
   docgen.py        Word generation
+  opener.py        open the exported document or its folder
   app.py           FastAPI routes + static GUI
   static/          index.html, app.js, logic.js, style.css
-tools/make_examples.py   example database and template
+tools/make_examples.py   example database, table layout and template
 PLAN.md                  current status and plan (decisions in docs/decisions.md)
 ```
 
