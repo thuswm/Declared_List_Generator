@@ -48,13 +48,24 @@ def test_font_size_with_merged_header_and_valid_order() -> None:
     table = doc.tables[-1]
     assert _sizes(table) == ({"14"}, {"14"})
     p_pr = table._tbl.tr_lst[0].tc_lst[0].xpath(".//w:pPr")[0]
-    assert [child.tag.split("}")[1] for child in p_pr] == ["jc", "rPr"]
+    assert [child.tag.split("}")[1] for child in p_pr] == ["spacing", "jc", "rPr"]
 
 
 def test_zero_keeps_template_font() -> None:
-    """0 = no size set anywhere in the table."""
+    """0 = no size and no spacing set anywhere in the table."""
     doc = build_document(TEMPLATE, ["ID", "Name"], ITEMS, font_size=0)
     assert _sizes(doc.tables[-1]) == (set(), set())
+    assert not doc.tables[-1]._tbl.xpath(".//w:pPr/w:spacing")
+
+
+def test_font_size_makes_cell_spacing_compact() -> None:
+    """With a size set, every cell paragraph has no space before/after and single line spacing."""
+    doc = build_document(TEMPLATE, ["ID", "Name", "Note"], ITEMS, font_size=8)
+    tbl = doc.tables[-1]._tbl
+    spacings = tbl.xpath(".//w:pPr/w:spacing")
+    assert len(spacings) == len(tbl.xpath(".//w:p"))
+    for sp in spacings:
+        assert (sp.get(qn("w:before")), sp.get(qn("w:after")), sp.get(qn("w:line"))) == ("0", "0", "240")
 
 
 def test_config_round_trip_and_validation(tmp_path: Path) -> None:

@@ -422,11 +422,17 @@ def _build_table(
 
 
 def _set_font_size(table: Table, size: float) -> None:
-    """Set one font size for all text in the table.
+    """Set one font size for all text in the table, with compact cell spacing.
 
     The size is set on every run *and* on every paragraph mark. Word sizes an
     empty paragraph (an empty cell) by its mark, so without it empty cells keep
     the template's larger font and make their rows taller than the rest.
+
+    Paragraphs in the cells also get no space before/after and single line
+    spacing: templates often add space after every paragraph (e.g. 10 pt at
+    1.15 lines), which otherwise dominates the row height once the text is
+    small (user decision: only when a size is set, so the template look is
+    kept by default).
 
     Args:
         table: The finished items table.
@@ -438,6 +444,10 @@ def _set_font_size(table: Table, size: float) -> None:
             paragraph = Paragraph(p, table)
             for run in paragraph.runs:
                 run.font.size = Pt(size)
+            fmt = paragraph.paragraph_format  # python-docx keeps pPr children in schema order
+            fmt.space_before = Pt(0)
+            fmt.space_after = Pt(0)
+            fmt.line_spacing = 1.0
             p_pr = p.get_or_add_pPr()
             r_pr = p_pr.find(qn("w:rPr"))
             if r_pr is None:

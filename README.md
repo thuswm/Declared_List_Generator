@@ -191,7 +191,8 @@ header row and exactly the shown (non-`#`) columns of the item database; column
 widths follow the length of their content.
 
 The table's font size can be set in Settings → *Table font size* (pt; empty or
-0 keeps the template's size).
+0 keeps the template's size and spacing). With a size set, the table cells are
+also made compact: no space before/after paragraphs, single line spacing.
 
 `{{CONFIGURATION_NAME}}` anywhere in the template (body text, tables, headers
 and footers) is replaced by the configuration name entered in the tool, e.g.
