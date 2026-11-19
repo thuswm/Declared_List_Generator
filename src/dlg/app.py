@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from dlg import get_version
-from dlg.config import Config, ConfigError, save_config
+from dlg.config import Config, ConfigError, font_size_problem, save_config
 from dlg.docgen import DocgenError, OutputLockedError, check_template, generate_declared_list
 from dlg.filebrowser import BrowseError, BrowseNotFoundError, Listing, list_folder
 from dlg.layout import LayoutError, TableLayout, apply_layout, load_layout
@@ -65,6 +65,7 @@ class SettingsResponse(BaseModel):
         global_sessions_dir: Shared session library folder ('' if not set).
         table_layout_file: Workbook with the Word layout sheet ('' = the item database).
         table_layout_sheet: Name of the Word layout sheet.
+        table_font_size: Word table font size in pt (0 = template font).
         config_file: Configuration file the settings are saved to ('' if none).
     """
 
@@ -76,6 +77,7 @@ class SettingsResponse(BaseModel):
     global_sessions_dir: str
     table_layout_file: str
     table_layout_sheet: str
+    table_font_size: float
     config_file: str
 
 
@@ -94,6 +96,8 @@ class SettingsUpdate(BaseModel):
         table_layout_file: New layout workbook (existing .xlsx, or '' for the
             item database).
         table_layout_sheet: New layout sheet name (non-empty).
+        table_font_size: New Word table font size in pt (0 = template font,
+            else 4–72 in steps of 0.5).
     """
 
     items_file: str | None = None
@@ -104,6 +108,7 @@ class SettingsUpdate(BaseModel):
     global_sessions_dir: str | None = None
     table_layout_file: str | None = None
     table_layout_sheet: str | None = Field(default=None, max_length=100)
+    table_font_size: float | None = None
 
 
 class InfoResponse(BaseModel):
@@ -537,7 +542,8 @@ def create_app(
         items = [i for i in table.with_user_values(req.user_values) if i.id in wanted]
         try:
             generate_declared_list(
-                cfg.template_file, table.column_names, items, target, req.configuration_name.strip(), layout
+                cfg.template_file, table.column_names, items, target, req.configuration_name.strip(), layout,
+                cfg.table_font_size,
             )
         except OutputLockedError as exc:
             raise HTTPException(status_code=423, detail=str(exc)) from exc
@@ -556,6 +562,7 @@ def create_app(
             global_sessions_dir=str(cfg.global_sessions_dir) if cfg.global_sessions_dir else "",
             table_layout_file=str(cfg.table_layout_file) if cfg.table_layout_file else "",
             table_layout_sheet=cfg.table_layout_sheet,
+            table_font_size=cfg.table_font_size,
             config_file=str(config_path) if config_path else "",
         )
 
@@ -575,6 +582,12 @@ def create_app(
         template_file = cfg.template_file
         sessions_dir, global_sessions_dir = cfg.sessions_dir, cfg.global_sessions_dir
         table_layout_file, table_layout_sheet = cfg.table_layout_file, cfg.table_layout_sheet
+        table_font_size = cfg.table_font_size
+        if req.table_font_size is not None:
+            problem = font_size_problem(req.table_font_size)
+            if problem:
+                raise HTTPException(status_code=400, detail=problem)
+            table_font_size = float(req.table_font_size)
         if req.items_file is not None:
             items_file = _checked_path(req.items_file, "Item database")
             if items_file.suffix.lower() != ".xlsx":
@@ -630,10 +643,10 @@ def create_app(
             if not table_layout_sheet:
                 raise HTTPException(status_code=400, detail="Layout sheet: enter the name of the sheet.")
         names = ("items_file", "id_column", "template_file", "output_dir", "sessions_dir", "global_sessions_dir",
-                 "table_layout_file", "table_layout_sheet")
+                 "table_layout_file", "table_layout_sheet", "table_font_size")
         old = {n: getattr(cfg, n) for n in names}
         new = (items_file, id_column, template_file, output_dir, sessions_dir, global_sessions_dir,
-               table_layout_file, table_layout_sheet)
+               table_layout_file, table_layout_sheet, table_font_size)
         for n, value in zip(names, new):
             setattr(cfg, n, value)
         if config_path is not None:

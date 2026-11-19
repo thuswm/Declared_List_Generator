@@ -56,6 +56,11 @@
         <span class="muted small">Without this sheet the Word table gets one header row with all columns.</span>
       </div>
       <div class="row">
+        <label for="font-size">Table font size</label>
+        <input id="font-size" type="number" min="0" max="72" step="0.5" class="font-size" placeholder="0">
+        <span class="muted small">pt · 0 or empty = the template's font size</span>
+      </div>
+      <div class="row">
         <label for="output-dir">Output folder</label>
         <input id="output-dir" type="text" class="wide path" spellcheck="false" placeholder="Folder for generated Word documents">
         <button id="output-browse" type="button">Browse…</button>

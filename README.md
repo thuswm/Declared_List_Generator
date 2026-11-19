@@ -190,6 +190,9 @@ template). Without a layout sheet (below), the table has one repeating
 header row and exactly the shown (non-`#`) columns of the item database; column
 widths follow the length of their content.
 
+The table's font size can be set in Settings → *Table font size* (pt; empty or
+0 keeps the template's size).
+
 `{{CONFIGURATION_NAME}}` anywhere in the template (body text, tables, headers
 and footers) is replaced by the configuration name entered in the tool, e.g.
 `Configuration: {{CONFIGURATION_NAME}}` as in the example template. Text boxes

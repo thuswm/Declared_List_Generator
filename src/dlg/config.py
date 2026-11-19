@@ -56,6 +56,8 @@ class Config:
         table_layout_file: Workbook with the Word table layout sheet; None
             (``""``) means the item database workbook.
         table_layout_sheet: Name of the Word table layout sheet.
+        table_font_size: Font size (pt) of the Word table; 0 keeps the
+            template's font size.
         output_dir: Folder where generated Word documents are written.
         id_column: Header of the item-database column holding the unique item IDs.
         host: Interface the server binds to (localhost: no authentication).
@@ -68,10 +70,33 @@ class Config:
     global_sessions_dir: Path | None = None
     table_layout_file: Path | None = None
     table_layout_sheet: str = "Word layout"
+    table_font_size: float = 0.0
     output_dir: Path = field(default_factory=lambda: _default_path("output"))
     id_column: str = "ID"
     host: str = "127.0.0.1"
     port: int = 8000
+
+
+#: Smallest and largest table font size (pt); Word allows half-point steps.
+MIN_FONT_SIZE = 4.0
+MAX_FONT_SIZE = 72.0
+
+
+def font_size_problem(size: float) -> str | None:
+    """Check a table font size.
+
+    Args:
+        size: Size in points; 0 means "keep the template's size".
+
+    Returns:
+        A message describing the problem, or None if the size is valid.
+    """
+    if size == 0:
+        return None
+    if not MIN_FONT_SIZE <= size <= MAX_FONT_SIZE or (size * 2) != int(size * 2):
+        return (f"Table font size must be 0 (template font) or {MIN_FONT_SIZE:g}–{MAX_FONT_SIZE:g} pt "
+                "in steps of 0.5.")
+    return None
 
 
 _PATH_KEYS = (
@@ -81,14 +106,14 @@ _PATH_KEYS = (
 _OPTIONAL_PATH_KEYS = ("global_sessions_dir", "table_layout_file")
 
 
-def _file_value(value: object) -> str | int:
+def _file_value(value: object) -> str | int | float:
     """Convert a setting to what is written in the file (paths as text, None as ``""``).
 
     Args:
         value: Setting value.
 
     Returns:
-        A string or integer for :func:`_toml_value`.
+        A string or number for :func:`_toml_value`.
     """
     if value is None:
         return ""
@@ -117,8 +142,8 @@ def default_config_path(platform: str | None = None, env: dict[str, str] | None 
     return base / APP_DIR_NAME / CONFIG_FILE_NAME
 
 
-def _toml_value(value: str | int) -> str:
-    """Format a string or integer as a TOML value.
+def _toml_value(value: str | int | float) -> str:
+    """Format a string or number as a TOML value.
 
     JSON string escaping is a valid subset of TOML basic strings, which keeps
     Windows backslashes and non-ASCII characters safe.
@@ -187,6 +212,16 @@ def load_config(path: Path | None = None) -> Config:
         if f.name not in data:
             continue
         value = data[f.name]
+        if f.name == "table_font_size":
+            # TOML writes 8 and 8.5 as int and float; both mean points.
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                raise ConfigError(f"Configuration file {path}: 'table_font_size' must be a number.")
+            value = float(value)
+            problem = font_size_problem(value)
+            if problem:
+                raise ConfigError(f"Configuration file {path}: {problem}")
+            setattr(config, f.name, value)
+            continue
         expected = int if f.name == "port" else str
         if not isinstance(value, expected) or isinstance(value, bool):
             raise ConfigError(f"Configuration file {path}: '{f.name}' must be a {expected.__name__}.")

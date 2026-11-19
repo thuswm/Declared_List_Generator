@@ -23,7 +23,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.oxml.xmlchemy import BaseOxmlElement
 from docx.section import Section
-from docx.shared import Emu
+from docx.shared import Emu, Pt
 from docx.table import Table, _Cell, _Row
 from docx.text.paragraph import Paragraph
 
@@ -85,6 +85,7 @@ def generate_declared_list(
     output_path: str | Path,
     configuration_name: str = "",
     layout: TableLayout | None = None,
+    font_size: float = 0,
 ) -> Path:
     """Create a declared list document and save it to disk.
 
@@ -99,6 +100,7 @@ def generate_declared_list(
         configuration_name: Text for ``{{CONFIGURATION_NAME}}``.
         layout: Multi-level header and column order from the layout sheet;
             None for the automatic one-row header over ``columns``.
+        font_size: Font size (pt) for the whole table; 0 keeps the template's.
 
     Returns:
         The output path.
@@ -109,7 +111,7 @@ def generate_declared_list(
         DocgenError: If the template is missing/invalid, has no placeholder,
             no items were given, or the file cannot be written.
     """
-    doc = build_document(template_path, columns, items, configuration_name, layout)
+    doc = build_document(template_path, columns, items, configuration_name, layout, font_size)
     out = Path(output_path)
     tmp = out.with_name(f"~{out.stem}.tmp.docx")
     try:
@@ -133,6 +135,7 @@ def build_document(
     items: Sequence[Item],
     configuration_name: str = "",
     layout: TableLayout | None = None,
+    font_size: float = 0,
 ) -> DocumentType:
     """Load the template, fill in text placeholders and insert the items table.
 
@@ -143,6 +146,7 @@ def build_document(
         configuration_name: Text for ``{{CONFIGURATION_NAME}}``.
         layout: Header and column order from the layout sheet (``columns``
             is then ignored); None for the automatic table.
+        font_size: Font size (pt) for the whole table; 0 keeps the template's.
 
     Returns:
         The populated document (not yet saved).
@@ -167,6 +171,8 @@ def build_document(
     placeholder = _find_placeholder(doc)
     section = doc.sections[_section_index(doc, placeholder._p)]
     table = _build_table(doc, items, columns, _text_width(section), layout)
+    if font_size:
+        _set_font_size(table, font_size)
 
     # Insert *before* the placeholder: if it carries the section break, inserting
     # after it would push the table into the next section (wrong orientation).
@@ -413,6 +419,37 @@ def _build_table(
         _mark_header_row(row)
     _fix_layout(table, sum(widths))
     return table
+
+
+def _set_font_size(table: Table, size: float) -> None:
+    """Set one font size for all text in the table.
+
+    The size is set on every run *and* on every paragraph mark. Word sizes an
+    empty paragraph (an empty cell) by its mark, so without it empty cells keep
+    the template's larger font and make their rows taller than the rest.
+
+    Args:
+        table: The finished items table.
+        size: Font size in points (half-point steps).
+    """
+    half_points = str(int(round(size * 2)))
+    for tc in table._tbl.iter(qn("w:tc")):  # each (merged) cell once
+        for p in tc.iter(qn("w:p")):
+            paragraph = Paragraph(p, table)
+            for run in paragraph.runs:
+                run.font.size = Pt(size)
+            p_pr = p.get_or_add_pPr()
+            r_pr = p_pr.find(qn("w:rPr"))
+            if r_pr is None:
+                # rPr sits near the end of pPr (only sectPr/pPrChange follow, never in table cells).
+                r_pr = OxmlElement("w:rPr")
+                p_pr.append(r_pr)
+            for tag in ("w:sz", "w:szCs"):
+                el = r_pr.find(qn(tag))
+                if el is None:
+                    el = OxmlElement(tag)
+                    r_pr.append(el)
+                el.set(qn("w:val"), half_points)
 
 
 def _fill_header_cell(cell: _Cell, text: str, centred: bool) -> None:

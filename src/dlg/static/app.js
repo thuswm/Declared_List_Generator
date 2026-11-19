@@ -42,6 +42,7 @@ const el = {
   settings: $('settings'), itemsFile: $('items-file'), idColumn: $('id-column'), outputDir: $('output-dir'),
   templateFile: $('template-file'), templateBrowse: $('template-browse'),
   layoutFile: $('layout-file'), layoutBrowse: $('layout-browse'), layoutSheet: $('layout-sheet'),
+  fontSize: $('font-size'),
   itemsBrowse: $('items-browse'), outputBrowse: $('output-browse'), settingsSave: $('settings-save'),
   configFile: $('config-file'), browse: $('browse-dialog'), browseTitle: $('browse-title'),
   browseRoots: $('browse-roots'), browseUp: $('browse-up'), browsePath: $('browse-path'), browseGo: $('browse-go'),
@@ -814,6 +815,7 @@ function showSettings(cfg) {
   el.templateFile.value = cfg.template_file;
   el.layoutFile.value = cfg.table_layout_file;
   el.layoutSheet.value = cfg.table_layout_sheet;
+  el.fontSize.value = cfg.table_font_size ? String(cfg.table_font_size) : '';
   el.outputDir.value = cfg.output_dir;
   state.libraryDirs = { user: cfg.sessions_dir, global: cfg.global_sessions_dir };
   // Everything that changes the columns: a change reloads the items.
@@ -833,6 +835,13 @@ async function loadSettings() {
 
 /** Save the settings; reload the items if the database changed. */
 async function saveSettings() {
+  // A number field reports '' both when empty and when its text is not a number ("8,5"
+  // in some locales); `badInput` tells them apart, so a typo is not saved as "template font".
+  if (el.fontSize.validity.badInput) {
+    showStatus('Table font size: enter a number such as 8 or 8.5 (empty = template font).', 'error');
+    el.fontSize.focus();
+    return;
+  }
   el.settingsSave.disabled = true;
   try {
     const before = state.savedDatabase;
@@ -842,6 +851,7 @@ async function saveSettings() {
       template_file: el.templateFile.value.trim(),
       table_layout_file: el.layoutFile.value.trim(),
       table_layout_sheet: el.layoutSheet.value.trim(),
+      table_font_size: el.fontSize.value === '' ? 0 : Number(el.fontSize.value),
       output_dir: el.outputDir.value.trim(),
     });
     showSettings(cfg);

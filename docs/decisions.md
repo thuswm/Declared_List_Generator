@@ -3,6 +3,11 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-19 – Table font size (0.3.0 step 6)
+- Setting `table_font_size` (pt, a TOML number; `0` = keep the template's size), valid range 4–72 in half-point steps (`config.font_size_problem`, shared by the config loader and `PUT /api/settings`). GUI: a number field in Settings; empty = 0. The GUI refuses `validity.badInput` itself, because `Number('')`/NaN would otherwise turn a typo into "template font" (and `JSON.stringify(NaN)` is `null`, which the API reads as "unchanged").
+- `docgen._set_font_size` sets the size on every run **and every paragraph mark** (`w:pPr/w:rPr/w:sz` + `szCs`). Word sizes an empty cell by its paragraph mark, so empty cells would otherwise keep the template size and make rows taller. It walks `w:tc` elements so merged cells are handled once. `rPr` is appended to `pPr` after `jc` (schema order; only `sectPr`/`pPrChange` may follow, never in cells).
+- **Open finding:** the example template's document defaults are 10 pt space after each paragraph and 1.15 line spacing. These apply inside the table too, so at 7 pt the rows are barely lower (seen in the LibreOffice rendering). Compact cell spacing (0 after, single line) would fix it but changes every table, so it is the user's call; not done.
+
 ## 2026-11-19 – Word table layout sheet (0.3.0 step 5)
 - **User decisions:** the mapping row is **not printed** (only the rows above it form the header, so a title can span down through all levels; with no rows above, the mapping names are a one-row header). The header style stays fixed: bold, grey, vertically centred, and merged cells also centred horizontally. It is not copied from Excel.
 - `dlg/layout.py`: `load_layout(path, sheet, required)` → `TableLayout(columns, header_rows, cells: HeaderCell(row, col, text, row_span, col_span), widths, source)`. The workbook is opened in **full mode** (read-only mode has no merged cells or column widths). The sheet name is matched exactly first, then ignoring case.
