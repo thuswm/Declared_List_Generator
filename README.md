@@ -314,6 +314,7 @@ src/dlg/
   app.py           FastAPI routes + static GUI
   static/          index.html, app.js, logic.js, style.css
 tools/make_examples.py   example database, table layout and template
+start_dlg.bat            Windows start script (double-click)
 PLAN.md                  current status and plan (decisions in docs/decisions.md)
 ```
 

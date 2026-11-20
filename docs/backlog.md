@@ -3,7 +3,7 @@
 Source of truth for ideas not in the current release plan. The user keeps a private `my_notes.md`; its decisions are copied here.
 
 ## Scheduled
-Release 0.4.0 (approved, see `PLAN.md`): Windows feedback on 0.3.0 plus O1–O4 (preview, lenient matching, start script, export summary).
+Nothing scheduled; next release to be planned in `PLAN.md`.
 
 ## Future ideas
 - **Document review mode:** read a Word file, compare its item table with the database (Excel), highlight rows/cells that do not match.
@@ -13,6 +13,7 @@ Release 0.4.0 (approved, see `PLAN.md`): Windows feedback on 0.3.0 plus O1–O4 
 - Cache the Excel read if the database grows large.
 
 ## Known issues / checks
+- **0.4.0 open checks (Windows):** a layout sheet with an empty mapping cell, a `-` column (also at the edge), an unknown name and a name in different case/spacing → warnings, ⚠ label, blank Word columns; *Check Word table…* dialog; Settings → *Empty input cells* (TBD in Word) and the export summary; session library dates as `YYYY-MM-DD HH:MM`; `start_dlg.bat` by double-click and via a desktop shortcut (also a path with spaces), and its error window when `.venv` is missing.
 - **0.3.0 open checks:** try the session library, Save to…, a layout sheet (start from `data/layout_example.xlsx`) in real Word, the table font size, and Open document/folder with real Word and Explorer on Windows.
 - **0.2.0 Windows test (done 2026-11-19 by the user):** works in general. Findings → 0.3.0 step 1: page needed F5 several times to load the new version; file-name field snapped back to the old name when the last character was deleted; "Saved" drop-down is not searchable (→ session browser); Word table needs a three-level header (→ step 5).
 - Real Word template from the user: placeholder `{{DECLARED_LIST}}` in a landscape section.

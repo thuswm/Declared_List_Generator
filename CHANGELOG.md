@@ -2,6 +2,17 @@
 
 Format: one entry per release, newest first. Versioning: [SemVer](https://semver.org/).
 
+## [0.4.0] – 2026-11-20
+Changes from the Windows test of 0.3.0, plus four smaller additions. Not yet tried on Windows.
+- **Blank Word columns instead of layout errors:** an empty cell in the layout sheet's mapping row, or a name the database lacks, now gives an empty Word column and a **warning** (status bar, ⚠ on the "Word table" label) instead of stopping. A **`-`** in the mapping row is a blank column on purpose (no warning, also at the table edge).
+- **Lenient column names:** mapping names match database columns ignoring case and extra spaces, with a warning. Ambiguous matches and two names on one column are errors.
+- **"TBD" for empty input cells:** new settings `mark_empty_inputs` / `empty_input_text` (Settings → *Empty input cells*) write a text such as `TBD` into empty cells of input (`*`) columns in Word.
+- **Export summary:** after every export the status lists the empty input cells per column.
+- **Check Word table…:** a dialog shows the Word header as it will be exported (merges, widths, column sources) plus layout warnings, before opening Word.
+- **ISO dates** (`YYYY-MM-DD HH:MM`) in the session library, independent of the browser language.
+- **`start_dlg.bat`:** start the tool on Windows by double-click or a desktop shortcut.
+- Database columns that the layout does not map are documented as allowed. Session files unchanged (`schema_version` 2).
+
 ## [0.3.0] – 2026-11-19
 Changes from the Windows test of 0.2.0. Steps 3–7 not yet tried on Windows; Open document/folder not yet tried with real Word/Explorer.
 - **No more F5 after an update:** the GUI files are always revalidated; the app version is shown in the page header.
