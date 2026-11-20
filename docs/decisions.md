@@ -3,6 +3,11 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-20 – "TBD" for empty input cells (0.4.0 step 4)
+- Applied **on the items at export** (`docgen.fill_empty_inputs`, called from `/api/export`), not in the table builder: one place for the layout and automatic tables, blank layout columns have no key so are never filled, and the per-column counts it returns feed step 5.
+- Only input columns that are **in the Word table** are filled (layout: `column_keys`; automatic: all shown columns). Space-only values count as empty. Typed values in the browser/session are never changed.
+- Config: `mark_empty_inputs` (TOML bool, strictly `true`/`false`) and `empty_input_text` (stripped, 1–100 chars, checked on load and in `PUT /api/settings`). The GUI sends `TBD` when the field is emptied, so a cleared field never blocks saving the other settings.
+
 ## 2026-11-20 – Lenient column matching (0.4.0 step 3)
 - In `apply_layout`, via `_match_column`: exact name first, else `" ".join(name.split()).casefold()` equality. A loose match gives a warning and the layout column is **renamed to the database name**, so item keys, session `user_values` and input columns all use the database spelling.
 - Loose match on two database columns → `LayoutError` (no guessing). Two mapping cells resolving to the same column (e.g. `Volt` and `volt`, or `Lot*` and `LOT*`) → `LayoutError` "both map the column" (the exact duplicate check in `parse_layout` cannot see these).

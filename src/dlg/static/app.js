@@ -44,7 +44,7 @@ const el = {
   settings: $('settings'), itemsFile: $('items-file'), idColumn: $('id-column'), outputDir: $('output-dir'),
   templateFile: $('template-file'), templateBrowse: $('template-browse'),
   layoutFile: $('layout-file'), layoutBrowse: $('layout-browse'), layoutSheet: $('layout-sheet'),
-  fontSize: $('font-size'),
+  fontSize: $('font-size'), markEmpty: $('mark-empty'), emptyText: $('empty-text'),
   itemsBrowse: $('items-browse'), outputBrowse: $('output-browse'), settingsSave: $('settings-save'),
   configFile: $('config-file'), browse: $('browse-dialog'), browseTitle: $('browse-title'),
   browseRoots: $('browse-roots'), browseUp: $('browse-up'), browsePath: $('browse-path'), browseGo: $('browse-go'),
@@ -840,6 +840,8 @@ function showSettings(cfg) {
   el.layoutFile.value = cfg.table_layout_file;
   el.layoutSheet.value = cfg.table_layout_sheet;
   el.fontSize.value = cfg.table_font_size ? String(cfg.table_font_size) : '';
+  el.markEmpty.checked = cfg.mark_empty_inputs;
+  el.emptyText.value = cfg.empty_input_text;
   el.outputDir.value = cfg.output_dir;
   state.libraryDirs = { user: cfg.sessions_dir, global: cfg.global_sessions_dir };
   // Everything that changes the columns: a change reloads the items.
@@ -876,6 +878,9 @@ async function saveSettings() {
       table_layout_file: el.layoutFile.value.trim(),
       table_layout_sheet: el.layoutSheet.value.trim(),
       table_font_size: el.fontSize.value === '' ? 0 : Number(el.fontSize.value),
+      mark_empty_inputs: el.markEmpty.checked,
+      // An emptied field falls back to the default instead of failing the whole save.
+      empty_input_text: el.emptyText.value.trim() || 'TBD',
       output_dir: el.outputDir.value.trim(),
     });
     showSettings(cfg);

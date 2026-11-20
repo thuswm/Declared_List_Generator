@@ -61,6 +61,13 @@
         <span class="muted small">pt · 0 or empty = the template's font size</span>
       </div>
       <div class="row">
+        <span class="label-like">Empty input cells</span>
+        <label class="inline"><input id="mark-empty" type="checkbox"> Write</label>
+        <input id="empty-text" type="text" maxlength="100" class="font-size" spellcheck="false" placeholder="TBD"
+               aria-label="Text for empty input cells">
+        <span class="muted small">in Word cells of input (*) columns left empty</span>
+      </div>
+      <div class="row">
         <label for="output-dir">Output folder</label>
         <input id="output-dir" type="text" class="wide path" spellcheck="false" placeholder="Folder for generated Word documents">
         <button id="output-browse" type="button">Browse…</button>

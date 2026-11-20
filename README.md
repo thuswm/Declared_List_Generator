@@ -93,6 +93,8 @@ To open it for editing: `xdg-open ~/.config/dlg/config.toml` (Linux),
 | `table_layout_file` | empty                                  | Workbook with the Word table layout; empty = the layout sheet inside the item database |
 | `table_layout_sheet` | `Word layout`                         | Name of the layout sheet                 |
 | `table_font_size` | `0`                                      | Word table font size in pt (4–72, steps of 0.5); 0 = the template's size |
+| `mark_empty_inputs` | `false`                                | Write `empty_input_text` into empty cells of input (`*`) columns in Word |
+| `empty_input_text` | `TBD`                                   | Text for those cells (1–100 characters) |
 | `host`, `port`  | `127.0.0.1`, `8000`                        | Where the server listens                 |
 
 Relative paths in the file are resolved against the folder containing it.
@@ -109,7 +111,8 @@ are appended to an existing file with their defaults, so you can see and change 
 **Settings** (collapsible panel at the top): choose the **Item database**
 (.xlsx), **Word template** (.docx), **Table layout** (.xlsx, optional) and
 **Output folder** with **Browse…**, set the **ID column**, **Layout sheet** and
-**Table font size**, and **Save settings**. They are written to your configuration file and take effect
+**Table font size**, choose whether **Empty input cells** get a text such as
+`TBD`, and **Save settings**. They are written to your configuration file and take effect
 immediately: the new database is loaded, and selected items that are not in it
 are deselected. If the database cannot be loaded at start-up, the panel opens
 by itself so the path or ID column can be fixed. Settings and browsing only
@@ -207,6 +210,11 @@ widths follow the length of their content.
 The table's font size can be set in Settings → *Table font size* (pt; empty or
 0 keeps the template's size and spacing). With a size set, the table cells are
 also made compact: no space before/after paragraphs, single line spacing.
+
+With Settings → *Empty input cells* → **Write** ticked, every cell of an input
+(`*`) column that was left empty is written as the given text (default `TBD`),
+so missing input stands out in the document. Empty database values and blank
+layout columns stay empty. The values typed in the tool are not changed.
 
 `{{CONFIGURATION_NAME}}` anywhere in the template (body text, tables, headers
 and footers) is replaced by the configuration name entered in the tool, e.g.

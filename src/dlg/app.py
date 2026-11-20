@@ -16,8 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from dlg import get_version
-from dlg.config import Config, ConfigError, font_size_problem, save_config
-from dlg.docgen import DocgenError, OutputLockedError, check_template, generate_declared_list
+from dlg.config import Config, ConfigError, empty_input_text_problem, font_size_problem, save_config
+from dlg.docgen import DocgenError, OutputLockedError, check_template, fill_empty_inputs, generate_declared_list
 from dlg.filebrowser import BrowseError, BrowseNotFoundError, Listing, list_folder
 from dlg.layout import LayoutError, TableLayout, apply_layout, load_layout
 from dlg.models import Column, Item, ItemTable, Session
@@ -67,6 +67,8 @@ class SettingsResponse(BaseModel):
         table_layout_file: Workbook with the Word layout sheet ('' = the item database).
         table_layout_sheet: Name of the Word layout sheet.
         table_font_size: Word table font size in pt (0 = template font).
+        mark_empty_inputs: Write ``empty_input_text`` into empty input cells in Word.
+        empty_input_text: Text for empty input cells (e.g. ``TBD``).
         config_file: Configuration file the settings are saved to ('' if none).
     """
 
@@ -79,6 +81,8 @@ class SettingsResponse(BaseModel):
     table_layout_file: str
     table_layout_sheet: str
     table_font_size: float
+    mark_empty_inputs: bool
+    empty_input_text: str
     config_file: str
 
 
@@ -99,6 +103,8 @@ class SettingsUpdate(BaseModel):
         table_layout_sheet: New layout sheet name (non-empty).
         table_font_size: New Word table font size in pt (0 = template font,
             else 4–72 in steps of 0.5).
+        mark_empty_inputs: Write ``empty_input_text`` into empty input cells.
+        empty_input_text: New text for empty input cells (non-empty).
     """
 
     items_file: str | None = None
@@ -110,6 +116,8 @@ class SettingsUpdate(BaseModel):
     table_layout_file: str | None = None
     table_layout_sheet: str | None = Field(default=None, max_length=100)
     table_font_size: float | None = None
+    mark_empty_inputs: bool | None = None
+    empty_input_text: str | None = None
 
 
 class InfoResponse(BaseModel):
@@ -564,6 +572,10 @@ def create_app(
         if target.exists() and not req.overwrite:
             raise HTTPException(status_code=409, detail=f"{name} already exists in {cfg.output_dir}.")
         items = [i for i in table.with_user_values(req.user_values) if i.id in wanted]
+        if cfg.mark_empty_inputs:
+            in_word = set(layout.column_keys if layout else table.column_names)
+            inputs = [c.name for c in table.columns if c.user_input and c.name in in_word]
+            items, _ = fill_empty_inputs(items, inputs, cfg.empty_input_text)
         try:
             generate_declared_list(
                 cfg.template_file, table.column_names, items, target, req.configuration_name.strip(), layout,
@@ -608,6 +620,8 @@ def create_app(
             table_layout_file=str(cfg.table_layout_file) if cfg.table_layout_file else "",
             table_layout_sheet=cfg.table_layout_sheet,
             table_font_size=cfg.table_font_size,
+            mark_empty_inputs=cfg.mark_empty_inputs,
+            empty_input_text=cfg.empty_input_text,
             config_file=str(config_path) if config_path else "",
         )
 
@@ -633,6 +647,14 @@ def create_app(
             if problem:
                 raise HTTPException(status_code=400, detail=problem)
             table_font_size = float(req.table_font_size)
+        mark_empty_inputs, empty_input_text = cfg.mark_empty_inputs, cfg.empty_input_text
+        if req.mark_empty_inputs is not None:
+            mark_empty_inputs = req.mark_empty_inputs
+        if req.empty_input_text is not None:
+            empty_input_text = req.empty_input_text.strip()
+            problem = empty_input_text_problem(empty_input_text)
+            if problem:
+                raise HTTPException(status_code=400, detail=problem)
         if req.items_file is not None:
             items_file = _checked_path(req.items_file, "Item database")
             if items_file.suffix.lower() != ".xlsx":
@@ -688,10 +710,11 @@ def create_app(
             if not table_layout_sheet:
                 raise HTTPException(status_code=400, detail="Layout sheet: enter the name of the sheet.")
         names = ("items_file", "id_column", "template_file", "output_dir", "sessions_dir", "global_sessions_dir",
-                 "table_layout_file", "table_layout_sheet", "table_font_size")
+                 "table_layout_file", "table_layout_sheet", "table_font_size", "mark_empty_inputs",
+                 "empty_input_text")
         old = {n: getattr(cfg, n) for n in names}
         new = (items_file, id_column, template_file, output_dir, sessions_dir, global_sessions_dir,
-               table_layout_file, table_layout_sheet, table_font_size)
+               table_layout_file, table_layout_sheet, table_font_size, mark_empty_inputs, empty_input_text)
         for n, value in zip(names, new):
             setattr(cfg, n, value)
         if config_path is not None:

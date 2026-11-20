@@ -78,6 +78,36 @@ def column_weights(columns: Sequence[str], items: Sequence[Item]) -> list[float]
     return weights
 
 
+def fill_empty_inputs(
+    items: Sequence[Item], columns: Sequence[str], text: str
+) -> tuple[list[Item], dict[str, int]]:
+    """Write a text (e.g. ``TBD``) into empty cells of the given input columns.
+
+    Done on the items rather than in the table builder so the layout table and
+    the automatic table behave alike, and blank layout columns (which have no
+    item key) are never touched.
+
+    Args:
+        items: Items with the user's values filled in.
+        columns: Input columns that are in the Word table.
+        text: Text for empty cells (cells holding only spaces count as empty).
+
+    Returns:
+        New items (the inputs are not modified) and the number of filled
+        cells per column, for every column given (0 included), in order.
+    """
+    counts = {name: 0 for name in columns}
+    filled: list[Item] = []
+    for item in items:
+        values = dict(item.values)
+        for name in columns:
+            if not values.get(name, "").strip():
+                values[name] = text
+                counts[name] += 1
+        filled.append(Item(id=item.id, values=values))
+    return filled, counts
+
+
 def generate_declared_list(
     template_path: str | Path,
     columns: Sequence[str],
