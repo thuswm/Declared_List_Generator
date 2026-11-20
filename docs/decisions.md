@@ -3,6 +3,11 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-20 – Windows start script (0.4.0 step 8)
+- `start_dlg.bat` calls `%~dp0.venv\Scripts\python.exe -m dlg %*` directly instead of activating the venv (same effect, no PowerShell execution-policy issue); `cd /d "%~dp0"` so shortcuts and paths with spaces work.
+- `pause` only on failure (missing `.venv`, non-zero exit), so a normal Exit closes the window but errors stay readable.
+- File is plain ASCII with **CRLF**; `.gitattributes` `*.bat text eol=crlf` keeps it so on every checkout (cmd.exe labels/`goto` can fail with LF). Not runnable on Linux: `tests/test_start_script.py` checks endings and key lines (read as bytes: `read_text` hides CRLF). **Needs a real Windows run** in the release check.
+
 ## 2026-11-20 – Word table check dialog (0.4.0 step 7)
 - `GET /api/layout` (not local-only, like `/api/items`): `source`, `header_rows`, `columns` (label, user_input, blank), `cells` (spans), `widths` as fractions summing to 1, `warnings`. Same `load_data()` as items/export, so the check always matches what export would do; layout errors give the same 500.
 - Automatic table: one header row of the shown columns; widths from `column_weights` over **all** items (the export uses the selected ones; the dialog says so).

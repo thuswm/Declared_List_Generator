@@ -47,6 +47,13 @@ Windows:
 .venv\Scripts\python -m dlg
 ```
 
+Or **double-click `start_dlg.bat`** in the project folder: no console commands
+needed. For a desktop icon, right-click `start_dlg.bat` → *Show more options* →
+*Send to* → *Desktop (create shortcut)*. A console window stays open while the
+tool runs; closing it (or **Exit** in the browser) stops the tool. If `.venv`
+is missing or the tool stops with an error, the window stays open so the
+message can be read. Arguments are passed on, e.g. `start_dlg.bat --port 8001`.
+
 Alternatively, activate the venv once per terminal and then use plain `python -m dlg`:
 
 | Shell              | Activate                         |

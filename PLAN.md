@@ -5,7 +5,7 @@ Keep this file short (about one screen). Details live elsewhere:
 
 ## Status
 - **Released:** `v0.3.0` (2026-11-19, GitHub pre-release); Windows feedback received 2026-11-20 → release 0.4.0 below. Earlier plans: [archive](docs/archive/).
-- **Next step:** step 8 (Windows start script `start_dlg.bat`). Work on branch `release/0.4.0`.
+- **Next step:** step 9 (release 0.4.0). Work on branch `release/0.4.0`.
 
 ## Release 0.4.0 – plan (approved 2026-11-20)
 Steps (each: implement → test → tick here → log decisions in `docs/decisions.md`). Planning decisions of 2026-11-20: [decisions](docs/decisions.md).
@@ -16,5 +16,5 @@ Steps (each: implement → test → tick here → log decisions in `docs/decisio
 5. [x] **O4 Export summary:** export response lists empty input cells per column ("Qty: 3 empty → TBD"); GUI shows it in the export status.
 6. [x] **ISO dates in the GUI:** session library "Modified" and `sessionLabel` as `YYYY-MM-DD HH:MM` (local time). Helper in `logic.js` + Node test.
 7. [x] **O1 Word-table preview/check:** "Check Word table" view in the browser: header grid (merges, widths as proportions, blank columns marked) + warnings, from a new `GET /api/layout`.
-8. [ ] **O3 Windows start script:** `start_dlg.bat` (activates `.venv`, runs `python -m dlg`); README section.
+8. [x] **O3 Windows start script:** `start_dlg.bat` (activates `.venv`, runs `python -m dlg`); README section.
 9. [ ] **Release:** README + CHANGELOG, version 0.4.0, tag `v0.4.0` (GitHub pre-release), archive plan; Windows check by user (gaps/`-`/unknown names, lenient matching, TBD + summary, dates, preview, .bat; plus the 0.3.0 open checks).
