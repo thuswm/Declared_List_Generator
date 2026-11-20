@@ -312,3 +312,19 @@ export function formatDateTime(iso) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+
+/**
+ * Group Word header cells into table rows for drawing with rowspan/colspan.
+ * @param {number} headerRows Number of header rows.
+ * @param {Array<{row:number,col:number,text:string,row_span:number,col_span:number}>} cells
+ *   Header cells covering the grid (merged cells once, at their top-left corner).
+ * @returns {Array<Array>} One array of cells per header row, sorted by column.
+ */
+export function headerRows(headerRows, cells) {
+  const rows = Array.from({ length: Math.max(headerRows, 0) }, () => []);
+  for (const cell of cells || []) {
+    if (cell.row >= 0 && cell.row < rows.length) rows[cell.row].push(cell);
+  }
+  for (const row of rows) row.sort((a, b) => a.col - b.col);
+  return rows;
+}

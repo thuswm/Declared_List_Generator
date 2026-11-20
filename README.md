@@ -266,6 +266,11 @@ another `.xlsx` and sheet. Example: `data/layout_example.xlsx` (written by
   land on the same column, are errors.
 - **Column widths** in the layout sheet set the relative widths in Word,
   scaled to the page width.
+- **Check Word table…** (next to *Export*) shows the header as it will be
+  exported: merged cells, column widths in proportion, and a last row naming
+  each column's source (input `*` columns in bold, blank columns in red), plus
+  any layout warnings. It re-reads the sheet each time, so you can fix the
+  layout in Excel, save, and check again without restarting.
 - No layout sheet in the database workbook → the automatic table. A separately
   chosen layout file must contain the named sheet.
 

@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  chooseFilter, currentLabel, emptyInputsText, errorMessage, formatDateTime, filterItems, filterValues, headerState, matchesQuery, partitionIds,
+  chooseFilter, currentLabel, emptyInputsText, errorMessage, formatDateTime, headerRows, filterItems, filterValues, headerState, matchesQuery, partitionIds,
   filterSessions, layoutWarningText, sessionLabel, setMany, setUserValue, sortSessions, suggestFileName, withUserValues,
 } from '../../src/dlg/static/logic.js';
 
@@ -221,4 +221,15 @@ test('formatDateTime: local YYYY-MM-DD HH:MM, zero-padded; invalid input unchang
 test('sessionLabel uses ISO date and time by default', () => {
   const modified = new Date(2026, 10, 20, 9, 5).toISOString();
   assert.equal(sessionLabel({ name: 'P', count: 2, modified }), 'P — 2 items — 2026-11-20 09:05');
+});
+
+test('headerRows groups cells by row, sorted by column; ignores cells outside', () => {
+  const cells = [
+    { row: 1, col: 1, text: 'Current' }, { row: 0, col: 2, text: 'Doc', row_span: 2 },
+    { row: 0, col: 0, text: 'Electrical', col_span: 2 }, { row: 1, col: 0, text: 'Voltage' },
+    { row: 5, col: 0, text: 'stray' },
+  ];
+  assert.deepEqual(headerRows(2, cells).map((r) => r.map((c) => c.text)),
+    [['Electrical', 'Doc'], ['Voltage', 'Current']]);
+  assert.deepEqual(headerRows(1, []), [[]]);
 });

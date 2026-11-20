@@ -364,3 +364,33 @@ def test_two_names_on_one_column_is_an_error(tmp_path: Path, mapping) -> None:
     path = make_workbook(tmp_path / "db.xlsx", [mapping])
     with pytest.raises(LayoutError, match="both map the column"):
         apply_layout(_table_with("ID", "Volt"), load_layout(path, "Word layout", required=False))
+
+
+def test_api_layout_describes_the_word_table(tmp_path: Path) -> None:
+    """GET /api/layout returns header cells, column flags, width fractions and warnings."""
+    rows = [["Electrical", None, None, "Doc"], ["Volt", "colour", "-", "Ref*"]]
+    db = make_workbook(tmp_path / "db.xlsx", rows, ("A1:C1",), {"A": 20, "B": 10, "C": 5, "D": 5})
+    body = _client(tmp_path, db).get("/api/layout").json()
+    assert body["source"] == "db.xlsx › Word layout" and body["header_rows"] == 1
+    assert [(c["label"], c["user_input"], c["blank"]) for c in body["columns"]] == [
+        ("Volt", False, False), ("colour (blank)", False, True), ("(blank)", False, True), ("Ref", True, False)]
+    assert [(c["row"], c["col"], c["text"], c["col_span"]) for c in body["cells"]] == [
+        (0, 0, "Electrical", 3), (0, 3, "Doc", 1)]
+    assert body["widths"] == [0.5, 0.25, 0.125, 0.125]
+    assert len(body["warnings"]) == 1 and "colour" in body["warnings"][0]
+
+
+def test_api_layout_automatic_table(tmp_path: Path) -> None:
+    """Without a layout sheet: one header row of the shown columns, widths summing to 1."""
+    body = _client(tmp_path, make_workbook(tmp_path / "db.xlsx")).get("/api/layout").json()
+    assert body["source"] == "" and body["header_rows"] == 1 and body["warnings"] == []
+    assert [c["label"] for c in body["columns"]] == ["ID", "Name", "Volt", "Amp"]
+    assert [c["text"] for c in body["cells"]] == ["ID", "Name", "Volt", "Amp"]
+    assert abs(sum(body["widths"]) - 1) < 1e-3
+
+
+def test_api_layout_error_is_reported_too(tmp_path: Path) -> None:
+    """A broken layout gives the same 500 as /api/items."""
+    c = _client(tmp_path, make_workbook(tmp_path / "db.xlsx", [["Name", "Name"]]))
+    r = c.get("/api/layout")
+    assert r.status_code == 500 and "mapped twice" in r.json()["detail"]

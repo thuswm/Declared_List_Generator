@@ -6,7 +6,7 @@
  */
 import {
   chooseFilter, currentLabel, emptyInputsText, errorMessage, filterItems, filterSessions, filterValues,
-  formatDateTime, headerState, layoutWarningText, matchesQuery, partitionIds, sessionLabel, setMany, setUserValue,
+  formatDateTime, headerRows, headerState, layoutWarningText, matchesQuery, partitionIds, sessionLabel, setMany, setUserValue,
   sortSessions, suggestFileName, withUserValues,
 } from './logic.js';
 
@@ -59,6 +59,9 @@ const el = {
   libraryFolder: $('library-folder'), libraryChange: $('library-change'), librarySearch: $('library-search'),
   libraryCount: $('library-count'), libraryRows: $('library-rows'), libraryEmpty: $('library-empty'),
   libraryError: $('library-error'), librarySkipped: $('library-skipped'), libraryChoice: $('library-choice'),
+  layoutBtn: $('layout-btn'), layoutDialog: $('layout-dialog'), layoutSource: $('layout-source'),
+  layoutTable: $('layout-table'), layoutWarnings: $('layout-warnings'), layoutError: $('layout-error'),
+  layoutClose: $('layout-close'),
   libraryDelete: $('library-delete'), libraryClose: $('library-close'), libraryLoad: $('library-load'),
 };
 
@@ -522,6 +525,70 @@ function saveSessionTo() {
     selectLabel: 'Save here',
     onChoose: (folder) => saveSession(folder),
   });
+}
+
+// ---- Word table check dialog ---------------------------------------------
+
+/** Open the Word table check: fetch the layout fresh (the sheet may have been edited) and draw it. */
+async function openLayoutCheck() {
+  el.layoutTable.replaceChildren();
+  el.layoutWarnings.replaceChildren();
+  el.layoutWarnings.hidden = true;
+  el.layoutError.hidden = true;
+  el.layoutSource.textContent = 'Loading…';
+  el.layoutDialog.showModal();
+  try {
+    renderLayoutCheck(await api('/api/layout'));
+  } catch (err) {
+    el.layoutSource.textContent = '';
+    el.layoutError.textContent = err.message;
+    el.layoutError.hidden = false;
+  }
+}
+
+/**
+ * Draw the Word header grid (with merges and proportional widths), the mapping row and the warnings.
+ * @param {{source:string,header_rows:number,columns:Array,cells:Array,widths:number[],warnings:string[]}} layout
+ */
+function renderLayoutCheck(layout) {
+  el.layoutSource.textContent = layout.source
+    ? `From ${layout.source} · ${layout.columns.length} columns · ${layout.header_rows} header row(s)`
+    : `Automatic table · ${layout.columns.length} columns (widths follow the content of the selected items)`;
+  const colgroup = document.createElement('colgroup');
+  for (const w of layout.widths) {
+    const col = document.createElement('col');
+    col.style.width = `${(w * 100).toFixed(2)}%`;
+    colgroup.append(col);
+  }
+  const thead = document.createElement('thead');
+  for (const cells of headerRows(layout.header_rows, layout.cells)) {
+    const tr = document.createElement('tr');
+    for (const cell of cells) {
+      const th = document.createElement('th');
+      th.textContent = cell.text;
+      if (cell.row_span > 1) th.rowSpan = cell.row_span;
+      if (cell.col_span > 1) th.colSpan = cell.col_span;
+      tr.append(th);
+    }
+    thead.append(tr);
+  }
+  const mapping = document.createElement('tr');
+  for (const column of layout.columns) {
+    const td = document.createElement('td');
+    td.textContent = column.user_input ? `${column.label} *` : column.label;
+    if (column.user_input) td.classList.add('layout-input');
+    if (column.blank) td.classList.add('layout-blank');
+    mapping.append(td);
+  }
+  const tbody = document.createElement('tbody');
+  tbody.append(mapping);
+  el.layoutTable.replaceChildren(colgroup, thead, tbody);
+  for (const warning of layout.warnings) {
+    const li = document.createElement('li');
+    li.textContent = warning;
+    el.layoutWarnings.append(li);
+  }
+  el.layoutWarnings.hidden = layout.warnings.length === 0;
 }
 
 // ---- Session library dialog ----------------------------------------------
@@ -1078,6 +1145,8 @@ function bindEvents() {
   bindFilterEvents();
   bindSettingsEvents();
   bindLibraryEvents();
+  el.layoutBtn.addEventListener('click', openLayoutCheck);
+  el.layoutClose.addEventListener('click', () => el.layoutDialog.close());
   el.rows.addEventListener('change', (e) => {
     const tr = e.target.closest('tr');
     if (!tr || e.target.type !== 'checkbox') return; // text cells are handled by 'input'

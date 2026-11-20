@@ -3,6 +3,12 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-20 – Word table check dialog (0.4.0 step 7)
+- `GET /api/layout` (not local-only, like `/api/items`): `source`, `header_rows`, `columns` (label, user_input, blank), `cells` (spans), `widths` as fractions summing to 1, `warnings`. Same `load_data()` as items/export, so the check always matches what export would do; layout errors give the same 500.
+- Automatic table: one header row of the shown columns; widths from `column_weights` over **all** items (the export uses the selected ones; the dialog says so).
+- GUI: "Check Word table…" button in the export row opens a `<dialog>`; the header is drawn as an HTML table with `rowSpan`/`colSpan` and a `<colgroup>` of percentages (`table-layout: fixed`). `headerRows()` in `logic.js` groups cells per row (Node-tested). Fetched fresh on every open.
+- Checked visually with headless Firefox (scratch copy of the static files, data embedded): merges, widths, mapping row and warnings render correctly. Gotcha: `.layout-table td` outranks a bare `.layout-blank`, so the state classes are qualified (`.layout-table td.layout-blank`).
+
 ## 2026-11-20 – ISO dates in the GUI (0.4.0 step 6)
 - `formatDateTime()` in `logic.js`: local time as `YYYY-MM-DD HH:MM` (no seconds), built from `Date` getters, not `toLocaleString()` (browser-language dependent). Invalid input is returned unchanged. Used by the session library "Modified" column and as `sessionLabel`'s default formatter. Server timestamps stay ISO 8601 UTC; library sorting still compares those strings.
 - Node test builds dates from local components, so it passes in any `TZ` (checked with UTC+1, America/Los_Angeles, Asia/Kolkata).

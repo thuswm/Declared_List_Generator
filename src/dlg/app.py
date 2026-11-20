@@ -17,9 +17,11 @@ from pydantic import BaseModel, Field
 
 from dlg import get_version
 from dlg.config import Config, ConfigError, empty_input_text_problem, font_size_problem, save_config
-from dlg.docgen import DocgenError, OutputLockedError, check_template, fill_empty_inputs, generate_declared_list
+from dlg.docgen import (
+    DocgenError, OutputLockedError, check_template, column_weights, fill_empty_inputs, generate_declared_list,
+)
 from dlg.filebrowser import BrowseError, BrowseNotFoundError, Listing, list_folder
-from dlg.layout import LayoutError, TableLayout, apply_layout, load_layout
+from dlg.layout import HeaderCell, LayoutError, TableLayout, apply_layout, load_layout
 from dlg.models import Column, Item, ItemTable, Session
 from dlg.opener import OpenError, Opener, open_path
 from dlg.sessions import WINDOWS_RESERVED_NAMES, SessionError, SessionNotFoundError, SessionStore
@@ -152,6 +154,58 @@ class ItemsResponse(BaseModel):
     items: list[Item]
     layout: str = ""
     word_columns: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class LayoutColumnInfo(BaseModel):
+    """One Word table column in ``GET /api/layout``.
+
+    Attributes:
+        label: Display text (blank columns marked ``(blank)``).
+        user_input: True for an input (``*``) column.
+        blank: True if the column is exported empty.
+    """
+
+    label: str
+    user_input: bool = False
+    blank: bool = False
+
+
+class HeaderCellInfo(BaseModel):
+    """One (possibly merged) Word header cell in ``GET /api/layout``.
+
+    Attributes:
+        row: Zero-based header row.
+        col: Zero-based column.
+        text: Cell text (may contain line breaks).
+        row_span: Header rows covered.
+        col_span: Columns covered.
+    """
+
+    row: int
+    col: int
+    text: str
+    row_span: int = 1
+    col_span: int = 1
+
+
+class LayoutResponse(BaseModel):
+    """Response of ``GET /api/layout``: the Word table as it will be exported.
+
+    Attributes:
+        source: Origin of the layout ('' for the automatic table).
+        header_rows: Number of header rows.
+        columns: Word table columns, in order.
+        cells: Header cells covering the ``header_rows`` x ``len(columns)`` grid.
+        widths: Relative column widths as fractions of the table width (sum 1).
+        warnings: Layout problems that do not stop the export.
+    """
+
+    source: str
+    header_rows: int
+    columns: list[LayoutColumnInfo]
+    cells: list[HeaderCellInfo]
+    widths: list[float]
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -440,6 +494,32 @@ def create_app(
             layout=layout.source if layout else "",
             word_columns=layout.column_labels if layout else table.column_names,
             warnings=layout.warnings if layout else [],
+        )
+
+    @app.get("/api/layout", response_model=LayoutResponse)
+    def get_layout() -> LayoutResponse:
+        """Return the Word table header and columns, for checking the layout before exporting.
+
+        Without a layout sheet this describes the automatic table; its widths
+        are estimated from all items (the export uses the selected ones).
+        """
+        table, layout = load_data()
+        if layout is None:
+            columns = [LayoutColumnInfo(label=c.name, user_input=c.user_input) for c in table.columns]
+            cells = [HeaderCell(0, i, c.name) for i, c in enumerate(table.columns)]
+            weights = column_weights(table.column_names, table.items)
+            header_rows, source, warnings = 1, "", []
+        else:
+            columns = [LayoutColumnInfo(label=c.label, user_input=c.user_input, blank=c.blank)
+                       for c in layout.columns]
+            cells, weights = layout.cells, layout.widths
+            header_rows, source, warnings = layout.header_rows, layout.source, layout.warnings
+        total = sum(weights) or 1.0
+        return LayoutResponse(
+            source=source, header_rows=header_rows, columns=columns,
+            cells=[HeaderCellInfo(row=c.row, col=c.col, text=c.text, row_span=c.row_span, col_span=c.col_span)
+                   for c in cells],
+            widths=[round(w / total, 4) for w in weights], warnings=warnings,
         )
 
     @app.get("/api/sessions", response_model=list[SessionSummary])
