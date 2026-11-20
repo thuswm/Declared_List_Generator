@@ -168,7 +168,7 @@ export function errorMessage(body, fallback) {
  * @param {(iso:string) => string} [formatDate] Date formatter (injectable for tests).
  * @returns {string} e.g. "Project A — Rig 7 — 3 items — 18/11/2026, 09:12".
  */
-export function sessionLabel(s, formatDate = (iso) => new Date(iso).toLocaleString()) {
+export function sessionLabel(s, formatDate = formatDateTime) {
   const parts = [s.name];
   if (s.configuration_name) parts.push(s.configuration_name);
   parts.push(`${s.count} item${s.count === 1 ? '' : 's'}`, formatDate(s.modified));
@@ -297,4 +297,18 @@ export function emptyInputsText(emptyInputs, text) {
   if (parts.length === 0) return '';
   const how = text ? `written as ${text}` : 'left empty';
   return `Empty input cells: ${parts.join(', ')} (${how}).`;
+}
+
+/**
+ * Format a timestamp as ISO-style local date and time, "YYYY-MM-DD HH:MM".
+ * Used instead of toLocaleString(), whose format depends on the browser's
+ * language settings (e.g. "20.11.2026, 14:05:09" or "11/20/2026, 2:05:09 PM").
+ * @param {string} iso Timestamp from the server (ISO 8601, with time zone).
+ * @returns {string} The local date and time, or the input unchanged if it is not a valid date.
+ */
+export function formatDateTime(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso ?? '');
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

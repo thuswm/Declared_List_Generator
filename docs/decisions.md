@@ -3,6 +3,10 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-20 – ISO dates in the GUI (0.4.0 step 6)
+- `formatDateTime()` in `logic.js`: local time as `YYYY-MM-DD HH:MM` (no seconds), built from `Date` getters, not `toLocaleString()` (browser-language dependent). Invalid input is returned unchanged. Used by the session library "Modified" column and as `sessionLabel`'s default formatter. Server timestamps stay ISO 8601 UTC; library sorting still compares those strings.
+- Node test builds dates from local components, so it passes in any `TZ` (checked with UTC+1, America/Los_Angeles, Asia/Kolkata).
+
 ## 2026-11-20 – Export summary of empty input cells (0.4.0 step 5)
 - `ExportResponse.empty_inputs` (only columns with ≥ 1 empty cell, in **Word table order**) and `empty_input_text` (`''` when the TBD setting is off). Counted **always**, not only with TBD on: the point is to notice missing input before the document goes out.
 - GUI: `emptyInputsText()` in `logic.js`; the export status becomes `warn` when there are empty input cells or layout warnings.

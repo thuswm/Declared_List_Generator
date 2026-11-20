@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  chooseFilter, currentLabel, emptyInputsText, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds,
+  chooseFilter, currentLabel, emptyInputsText, errorMessage, formatDateTime, filterItems, filterValues, headerState, matchesQuery, partitionIds,
   filterSessions, layoutWarningText, sessionLabel, setMany, setUserValue, sortSessions, suggestFileName, withUserValues,
 } from '../../src/dlg/static/logic.js';
 
@@ -207,4 +207,18 @@ test('emptyInputsText: nothing empty, left empty, written as text', () => {
   assert.equal(emptyInputsText(undefined, ''), '');
   assert.equal(emptyInputsText({ Lot: 2, Note: 1 }, ''), 'Empty input cells: Lot 2, Note 1 (left empty).');
   assert.equal(emptyInputsText({ Lot: 2 }, 'TBD'), 'Empty input cells: Lot 2 (written as TBD).');
+});
+
+test('formatDateTime: local YYYY-MM-DD HH:MM, zero-padded; invalid input unchanged', () => {
+  // Built from local components, so the test passes in any time zone.
+  const local = new Date(2026, 0, 5, 7, 3, 59);
+  assert.equal(formatDateTime(local.toISOString()), '2026-01-05 07:03');
+  assert.equal(formatDateTime(new Date(2026, 10, 20, 23, 45).toISOString()), '2026-11-20 23:45');
+  assert.equal(formatDateTime('not a date'), 'not a date');
+  assert.equal(formatDateTime(''), '');
+});
+
+test('sessionLabel uses ISO date and time by default', () => {
+  const modified = new Date(2026, 10, 20, 9, 5).toISOString();
+  assert.equal(sessionLabel({ name: 'P', count: 2, modified }), 'P — 2 items — 2026-11-20 09:05');
 });

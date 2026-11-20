@@ -5,8 +5,9 @@
  * with textContent, never innerHTML, so spreadsheet content cannot inject markup.
  */
 import {
-  chooseFilter, currentLabel, emptyInputsText, errorMessage, filterItems, filterValues, headerState, matchesQuery,
-  partitionIds, filterSessions, layoutWarningText, sessionLabel, setMany, setUserValue, sortSessions, suggestFileName, withUserValues,
+  chooseFilter, currentLabel, emptyInputsText, errorMessage, filterItems, filterSessions, filterValues,
+  formatDateTime, headerState, layoutWarningText, matchesQuery, partitionIds, sessionLabel, setMany, setUserValue,
+  sortSessions, suggestFileName, withUserValues,
 } from './logic.js';
 
 /** Label shown for empty cells in a filter list. */
@@ -605,7 +606,7 @@ function renderLibrary() {
     tr.tabIndex = 0;
     tr.title = sessionLabel(s);
     tr.classList.toggle('chosen', s.path === library.chosen);
-    const cells = [s.name, s.configuration_name, String(s.count), new Date(s.modified).toLocaleString(), s.file];
+    const cells = [s.name, s.configuration_name, String(s.count), formatDateTime(s.modified), s.file];
     cells.forEach((text, i) => {
       const td = document.createElement('td');
       td.textContent = text;

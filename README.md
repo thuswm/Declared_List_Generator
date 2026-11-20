@@ -140,6 +140,7 @@ work from the computer running the tool.
      the **Shared library** (`global_sessions_dir`; **Change folder…** sets
      it) or any **Other folder**. Search by name, configuration or file, sort
      by clicking a column header, and **Load** or **Delete** the selected session.
+     Dates are shown as `YYYY-MM-DD HH:MM` (local time), whatever the browser language.
 3. Check the **File name** (suggested from the configuration name, else the
    session name; `.docx` is added) and click **Export Word document**. The
    file is written to the output folder (created if needed) and the full path
