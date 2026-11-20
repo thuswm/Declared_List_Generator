@@ -5,7 +5,7 @@ Keep this file short (about one screen). Details live elsewhere:
 
 ## Status
 - **Released:** `v0.3.0` (2026-11-19, GitHub pre-release); Windows feedback received 2026-11-20 → release 0.4.0 below. Earlier plans: [archive](docs/archive/).
-- **Next step:** step 3 (lenient column matching). Steps 1–2 done, not yet committed.
+- **Next step:** step 3 (lenient column matching). Steps 1–2 done (branch `release/0.4.0`, commit f3b7b80).
 
 ## Release 0.4.0 – plan (approved 2026-11-20)
 Steps (each: implement → test → tick here → log decisions in `docs/decisions.md`). Planning decisions of 2026-11-20: [decisions](docs/decisions.md).
