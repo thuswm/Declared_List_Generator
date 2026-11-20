@@ -3,6 +3,9 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-20 – GitHub release status
+- A release is published as a GitHub **pre-release** and promoted to a full release once the user has checked it on Windows. On 2026-11-20 the user promoted `v0.2.0` and `v0.3.0` (`v0.3.0` = Latest); `v0.4.0` stays a pre-release until its Windows check.
+
 ## 2026-11-20 – Windows start script (0.4.0 step 8)
 - `start_dlg.bat` calls `%~dp0.venv\Scripts\python.exe -m dlg %*` directly instead of activating the venv (same effect, no PowerShell execution-policy issue); `cd /d "%~dp0"` so shortcuts and paths with spaces work.
 - `pause` only on failure (missing `.venv`, non-zero exit), so a normal Exit closes the window but errors stay readable.
