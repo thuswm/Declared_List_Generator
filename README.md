@@ -47,6 +47,13 @@ Windows:
 .venv\Scripts\python -m dlg
 ```
 
+Or **double-click `start_dlg.bat`** in the project folder: no console commands
+needed. For a desktop icon, right-click `start_dlg.bat` → *Show more options* →
+*Send to* → *Desktop (create shortcut)*. A console window stays open while the
+tool runs; closing it (or **Exit** in the browser) stops the tool. If `.venv`
+is missing or the tool stops with an error, the window stays open so the
+message can be read. Arguments are passed on, e.g. `start_dlg.bat --port 8001`.
+
 Alternatively, activate the venv once per terminal and then use plain `python -m dlg`:
 
 | Shell              | Activate                         |
@@ -93,6 +100,8 @@ To open it for editing: `xdg-open ~/.config/dlg/config.toml` (Linux),
 | `table_layout_file` | empty                                  | Workbook with the Word table layout; empty = the layout sheet inside the item database |
 | `table_layout_sheet` | `Word layout`                         | Name of the layout sheet                 |
 | `table_font_size` | `0`                                      | Word table font size in pt (4–72, steps of 0.5); 0 = the template's size |
+| `mark_empty_inputs` | `false`                                | Write `empty_input_text` into empty cells of input (`*`) columns in Word |
+| `empty_input_text` | `TBD`                                   | Text for those cells (1–100 characters) |
 | `host`, `port`  | `127.0.0.1`, `8000`                        | Where the server listens                 |
 
 Relative paths in the file are resolved against the folder containing it.
@@ -109,7 +118,8 @@ are appended to an existing file with their defaults, so you can see and change 
 **Settings** (collapsible panel at the top): choose the **Item database**
 (.xlsx), **Word template** (.docx), **Table layout** (.xlsx, optional) and
 **Output folder** with **Browse…**, set the **ID column**, **Layout sheet** and
-**Table font size**, and **Save settings**. They are written to your configuration file and take effect
+**Table font size**, choose whether **Empty input cells** get a text such as
+`TBD`, and **Save settings**. They are written to your configuration file and take effect
 immediately: the new database is loaded, and selected items that are not in it
 are deselected. If the database cannot be loaded at start-up, the panel opens
 by itself so the path or ID column can be fixed. Settings and browsing only
@@ -137,6 +147,7 @@ work from the computer running the tool.
      the **Shared library** (`global_sessions_dir`; **Change folder…** sets
      it) or any **Other folder**. Search by name, configuration or file, sort
      by clicking a column header, and **Load** or **Delete** the selected session.
+     Dates are shown as `YYYY-MM-DD HH:MM` (local time), whatever the browser language.
 3. Check the **File name** (suggested from the configuration name, else the
    session name; `.docx` is added) and click **Export Word document**. The
    file is written to the output folder (created if needed) and the full path
@@ -208,6 +219,14 @@ The table's font size can be set in Settings → *Table font size* (pt; empty or
 0 keeps the template's size and spacing). With a size set, the table cells are
 also made compact: no space before/after paragraphs, single line spacing.
 
+With Settings → *Empty input cells* → **Write** ticked, every cell of an input
+(`*`) column that was left empty is written as the given text (default `TBD`),
+so missing input stands out in the document. Empty database values and blank
+layout columns stay empty. The values typed in the tool are not changed.
+After every export the status bar lists the empty input cells per column, e.g.
+"Empty input cells: Serial number 3 (written as TBD)." (or "left empty" with
+the setting off), so missing input is noticed before the document goes out.
+
 `{{CONFIGURATION_NAME}}` anywhere in the template (body text, tables, headers
 and footers) is replaced by the configuration name entered in the tool, e.g.
 `Configuration: {{CONFIGURATION_NAME}}` as in the example template. Text boxes
@@ -228,21 +247,37 @@ another `.xlsx` and sheet. Example: `data/layout_example.xlsx` (written by
 
 - The **last used row is the mapping row**. Each cell names a column of the
   data sheet; the selected items are written beneath the header in that order.
-  The mapping row itself is **not printed**. Every cell between its first and
-  last filled cell must name a column; a column may be mapped once.
+  The mapping row itself is **not printed**. The table spans its first to last
+  filled cell; a column may be mapped once.
+- A **`-`** in the mapping row is a **blank Word column** on purpose: its cells
+  stay empty (the header comes from the rows above). It also works at the left
+  or right edge of the table.
 - The rows **above** it are the Word header: free text; merged cells (across
   and down) become merged cells in Word; Alt+Enter line breaks are kept. With
   no rows above, the mapping names form a one-row header. Merged cells must not
   include the mapping row (merging erases the text of all but the first cell).
-- **Only mapped columns** go to Word, in mapping order. Unmapped columns are
-  still shown in the browser (hide them there with `#` as before).
+- **Only mapped columns** go to Word, in mapping order. Database columns that
+  are not mapped are fine: they are still shown in the browser (hide them there
+  with `#` as before) but not written to Word.
 - A mapping name ending in `*` is a **user-input column**, even if the data
   sheet has it as a normal column. It does not have to exist in the database:
   the tool adds it to the browser table as an input column.
-- A mapping name that is not a shown database column (and has no `*`) is an
-  error that lists the available columns.
+- An **empty mapping cell** inside the table, or a mapping name that is not a
+  shown database column (and has no `*`), gives a blank Word column plus a
+  **warning** (status bar, ⚠ on the "Word table" label; hover it for details).
+  The export still works. Use `-` to silence the warning, or `*` to type the
+  column in the tool.
+- Mapping names **ignore case and extra spaces** (`part  no` finds `Part No`),
+  with a warning so the layout can be corrected. An exact name always wins; a
+  name that loosely matches two database columns, or two mapping names that
+  land on the same column, are errors.
 - **Column widths** in the layout sheet set the relative widths in Word,
   scaled to the page width.
+- **Check Word table…** (next to *Export*) shows the header as it will be
+  exported: merged cells, column widths in proportion, and a last row naming
+  each column's source (input `*` columns in bold, blank columns in red), plus
+  any layout warnings. It re-reads the sheet each time, so you can fix the
+  layout in Excel, save, and check again without restarting.
 - No layout sheet in the database workbook → the automatic table. A separately
   chosen layout file must contain the named sheet.
 
@@ -279,6 +314,7 @@ src/dlg/
   app.py           FastAPI routes + static GUI
   static/          index.html, app.js, logic.js, style.css
 tools/make_examples.py   example database, table layout and template
+start_dlg.bat            Windows start script (double-click)
 PLAN.md                  current status and plan (decisions in docs/decisions.md)
 ```
 

@@ -58,6 +58,9 @@ class Config:
         table_layout_sheet: Name of the Word table layout sheet.
         table_font_size: Font size (pt) of the Word table; 0 keeps the
             template's font size.
+        mark_empty_inputs: Write ``empty_input_text`` into empty cells of
+            input (``*``) columns in the Word table.
+        empty_input_text: Text for those cells (e.g. ``TBD``).
         output_dir: Folder where generated Word documents are written.
         id_column: Header of the item-database column holding the unique item IDs.
         host: Interface the server binds to (localhost: no authentication).
@@ -71,6 +74,8 @@ class Config:
     table_layout_file: Path | None = None
     table_layout_sheet: str = "Word layout"
     table_font_size: float = 0.0
+    mark_empty_inputs: bool = False
+    empty_input_text: str = "TBD"
     output_dir: Path = field(default_factory=lambda: _default_path("output"))
     id_column: str = "ID"
     host: str = "127.0.0.1"
@@ -99,6 +104,26 @@ def font_size_problem(size: float) -> str | None:
     return None
 
 
+#: Longest text accepted for empty input cells.
+MAX_EMPTY_INPUT_TEXT = 100
+
+
+def empty_input_text_problem(text: str) -> str | None:
+    """Check the text written into empty input cells.
+
+    Args:
+        text: The text (already stripped).
+
+    Returns:
+        A message describing the problem, or None if the text is valid.
+    """
+    if not text:
+        return "Text for empty input cells: enter a text such as TBD."
+    if len(text) > MAX_EMPTY_INPUT_TEXT:
+        return f"Text for empty input cells: at most {MAX_EMPTY_INPUT_TEXT} characters."
+    return None
+
+
 _PATH_KEYS = (
     "items_file", "template_file", "sessions_dir", "global_sessions_dir", "output_dir", "table_layout_file",
 )
@@ -106,7 +131,7 @@ _PATH_KEYS = (
 _OPTIONAL_PATH_KEYS = ("global_sessions_dir", "table_layout_file")
 
 
-def _file_value(value: object) -> str | int | float:
+def _file_value(value: object) -> str | int | float | bool:
     """Convert a setting to what is written in the file (paths as text, None as ``""``).
 
     Args:
@@ -142,11 +167,12 @@ def default_config_path(platform: str | None = None, env: dict[str, str] | None 
     return base / APP_DIR_NAME / CONFIG_FILE_NAME
 
 
-def _toml_value(value: str | int | float) -> str:
-    """Format a string or number as a TOML value.
+def _toml_value(value: str | int | float | bool) -> str:
+    """Format a string, number or boolean as a TOML value.
 
     JSON string escaping is a valid subset of TOML basic strings, which keeps
-    Windows backslashes and non-ASCII characters safe.
+    Windows backslashes and non-ASCII characters safe; JSON ``true``/``false``
+    are TOML booleans too.
 
     Args:
         value: The value to format.
@@ -222,6 +248,11 @@ def load_config(path: Path | None = None) -> Config:
                 raise ConfigError(f"Configuration file {path}: {problem}")
             setattr(config, f.name, value)
             continue
+        if f.name == "mark_empty_inputs":
+            if not isinstance(value, bool):
+                raise ConfigError(f"Configuration file {path}: 'mark_empty_inputs' must be true or false.")
+            config.mark_empty_inputs = value
+            continue
         expected = int if f.name == "port" else str
         if not isinstance(value, expected) or isinstance(value, bool):
             raise ConfigError(f"Configuration file {path}: '{f.name}' must be a {expected.__name__}.")
@@ -239,6 +270,10 @@ def load_config(path: Path | None = None) -> Config:
     config.id_column = config.id_column.strip()
     if not config.table_layout_sheet.strip():
         raise ConfigError(f"Configuration file {path}: 'table_layout_sheet' must not be empty.")
+    config.empty_input_text = config.empty_input_text.strip()
+    problem = empty_input_text_problem(config.empty_input_text)
+    if problem:
+        raise ConfigError(f"Configuration file {path}: {problem}")
     return config
 
 

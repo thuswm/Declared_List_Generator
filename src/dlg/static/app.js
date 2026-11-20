@@ -5,8 +5,9 @@
  * with textContent, never innerHTML, so spreadsheet content cannot inject markup.
  */
 import {
-  chooseFilter, currentLabel, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds,
-  filterSessions, sessionLabel, setMany, setUserValue, sortSessions, suggestFileName, withUserValues,
+  chooseFilter, currentLabel, emptyInputsText, errorMessage, filterItems, filterSessions, filterValues,
+  formatDateTime, headerRows, headerState, layoutWarningText, matchesQuery, partitionIds, sessionLabel, setMany, setUserValue,
+  sortSessions, suggestFileName, withUserValues,
 } from './logic.js';
 
 /** Label shown for empty cells in a filter list. */
@@ -27,6 +28,7 @@ const state = {
   libraryDirs: { user: '', global: '' }, // session library folders from the settings
   configurationName: '', // configuration name of that session, as last loaded or saved
   userValues: {}, // values typed in user-input columns: {itemId: {column: value}}
+  layoutWarnings: [], // Word table layout warnings from the last item load
   savedDatabase: '', // database, ID column and layout settings as last saved (detects a column change)
   fileNameEdited: false, // the user typed a file name; stop suggesting one
   exportedFile: '', // file name of the last export (for Open document / Open folder)
@@ -43,7 +45,7 @@ const el = {
   settings: $('settings'), itemsFile: $('items-file'), idColumn: $('id-column'), outputDir: $('output-dir'),
   templateFile: $('template-file'), templateBrowse: $('template-browse'),
   layoutFile: $('layout-file'), layoutBrowse: $('layout-browse'), layoutSheet: $('layout-sheet'),
-  fontSize: $('font-size'),
+  fontSize: $('font-size'), markEmpty: $('mark-empty'), emptyText: $('empty-text'),
   itemsBrowse: $('items-browse'), outputBrowse: $('output-browse'), settingsSave: $('settings-save'),
   configFile: $('config-file'), browse: $('browse-dialog'), browseTitle: $('browse-title'),
   browseRoots: $('browse-roots'), browseUp: $('browse-up'), browsePath: $('browse-path'), browseGo: $('browse-go'),
@@ -57,6 +59,9 @@ const el = {
   libraryFolder: $('library-folder'), libraryChange: $('library-change'), librarySearch: $('library-search'),
   libraryCount: $('library-count'), libraryRows: $('library-rows'), libraryEmpty: $('library-empty'),
   libraryError: $('library-error'), librarySkipped: $('library-skipped'), libraryChoice: $('library-choice'),
+  layoutBtn: $('layout-btn'), layoutDialog: $('layout-dialog'), layoutSource: $('layout-source'),
+  layoutTable: $('layout-table'), layoutWarnings: $('layout-warnings'), layoutError: $('layout-error'),
+  layoutClose: $('layout-close'),
   libraryDelete: $('library-delete'), libraryClose: $('library-close'), libraryLoad: $('library-load'),
 };
 
@@ -522,6 +527,70 @@ function saveSessionTo() {
   });
 }
 
+// ---- Word table check dialog ---------------------------------------------
+
+/** Open the Word table check: fetch the layout fresh (the sheet may have been edited) and draw it. */
+async function openLayoutCheck() {
+  el.layoutTable.replaceChildren();
+  el.layoutWarnings.replaceChildren();
+  el.layoutWarnings.hidden = true;
+  el.layoutError.hidden = true;
+  el.layoutSource.textContent = 'Loading…';
+  el.layoutDialog.showModal();
+  try {
+    renderLayoutCheck(await api('/api/layout'));
+  } catch (err) {
+    el.layoutSource.textContent = '';
+    el.layoutError.textContent = err.message;
+    el.layoutError.hidden = false;
+  }
+}
+
+/**
+ * Draw the Word header grid (with merges and proportional widths), the mapping row and the warnings.
+ * @param {{source:string,header_rows:number,columns:Array,cells:Array,widths:number[],warnings:string[]}} layout
+ */
+function renderLayoutCheck(layout) {
+  el.layoutSource.textContent = layout.source
+    ? `From ${layout.source} · ${layout.columns.length} columns · ${layout.header_rows} header row(s)`
+    : `Automatic table · ${layout.columns.length} columns (widths follow the content of the selected items)`;
+  const colgroup = document.createElement('colgroup');
+  for (const w of layout.widths) {
+    const col = document.createElement('col');
+    col.style.width = `${(w * 100).toFixed(2)}%`;
+    colgroup.append(col);
+  }
+  const thead = document.createElement('thead');
+  for (const cells of headerRows(layout.header_rows, layout.cells)) {
+    const tr = document.createElement('tr');
+    for (const cell of cells) {
+      const th = document.createElement('th');
+      th.textContent = cell.text;
+      if (cell.row_span > 1) th.rowSpan = cell.row_span;
+      if (cell.col_span > 1) th.colSpan = cell.col_span;
+      tr.append(th);
+    }
+    thead.append(tr);
+  }
+  const mapping = document.createElement('tr');
+  for (const column of layout.columns) {
+    const td = document.createElement('td');
+    td.textContent = column.user_input ? `${column.label} *` : column.label;
+    if (column.user_input) td.classList.add('layout-input');
+    if (column.blank) td.classList.add('layout-blank');
+    mapping.append(td);
+  }
+  const tbody = document.createElement('tbody');
+  tbody.append(mapping);
+  el.layoutTable.replaceChildren(colgroup, thead, tbody);
+  for (const warning of layout.warnings) {
+    const li = document.createElement('li');
+    li.textContent = warning;
+    el.layoutWarnings.append(li);
+  }
+  el.layoutWarnings.hidden = layout.warnings.length === 0;
+}
+
 // ---- Session library dialog ----------------------------------------------
 
 /** State of the session library dialog. */
@@ -604,7 +673,7 @@ function renderLibrary() {
     tr.tabIndex = 0;
     tr.title = sessionLabel(s);
     tr.classList.toggle('chosen', s.path === library.chosen);
-    const cells = [s.name, s.configuration_name, String(s.count), new Date(s.modified).toLocaleString(), s.file];
+    const cells = [s.name, s.configuration_name, String(s.count), formatDateTime(s.modified), s.file];
     cells.forEach((text, i) => {
       const td = document.createElement('td');
       td.textContent = text;
@@ -799,7 +868,10 @@ async function exportDocument() {
       }
       result = await sendJson('/api/export', 'POST', { ...body, overwrite: true });
     }
-    showStatus(`Saved ${result.count} item${result.count === 1 ? '' : 's'} to ${result.path}`);
+    const notes = [emptyInputsText(result.empty_inputs, result.empty_input_text),
+      layoutWarningText(result.warnings)].filter(Boolean);
+    showStatus([`Saved ${result.count} item${result.count === 1 ? '' : 's'} to ${result.path}.`, ...notes].join(' '),
+      notes.length ? 'warn' : 'ok');
     state.exportedFile = result.file_name;
     el.openDoc.title = `Open ${result.file_name} in Word`;
     el.openFolder.title = `Show ${result.file_name} in its folder`;
@@ -837,6 +909,8 @@ function showSettings(cfg) {
   el.layoutFile.value = cfg.table_layout_file;
   el.layoutSheet.value = cfg.table_layout_sheet;
   el.fontSize.value = cfg.table_font_size ? String(cfg.table_font_size) : '';
+  el.markEmpty.checked = cfg.mark_empty_inputs;
+  el.emptyText.value = cfg.empty_input_text;
   el.outputDir.value = cfg.output_dir;
   state.libraryDirs = { user: cfg.sessions_dir, global: cfg.global_sessions_dir };
   // Everything that changes the columns: a change reloads the items.
@@ -873,6 +947,9 @@ async function saveSettings() {
       table_layout_file: el.layoutFile.value.trim(),
       table_layout_sheet: el.layoutSheet.value.trim(),
       table_font_size: el.fontSize.value === '' ? 0 : Number(el.fontSize.value),
+      mark_empty_inputs: el.markEmpty.checked,
+      // An emptied field falls back to the default instead of failing the whole save.
+      empty_input_text: el.emptyText.value.trim() || 'TBD',
       output_dir: el.outputDir.value.trim(),
     });
     showSettings(cfg);
@@ -886,7 +963,9 @@ async function saveSettings() {
         showStatus(`Settings saved. ${dropped.length} selected item(s) are not in the new database `
           + `and were deselected: ${dropped.join(', ')}`, 'warn');
       } else {
-        showStatus(`Settings saved. Loaded ${state.items.length} items.`);
+        const warning = layoutWarningText(state.layoutWarnings);
+        showStatus(`Settings saved. Loaded ${state.items.length} items.${warning ? ` ${warning}` : ''}`,
+          warning ? 'warn' : 'ok');
       }
     } catch (err) {
       state.items = [];
@@ -1066,6 +1145,8 @@ function bindEvents() {
   bindFilterEvents();
   bindSettingsEvents();
   bindLibraryEvents();
+  el.layoutBtn.addEventListener('click', openLayoutCheck);
+  el.layoutClose.addEventListener('click', () => el.layoutDialog.close());
   el.rows.addEventListener('change', (e) => {
     const tr = e.target.closest('tr');
     if (!tr || e.target.type !== 'checkbox') return; // text cells are handled by 'input'
@@ -1147,11 +1228,14 @@ async function loadItems() {
   }
   const { known, unknown } = partitionIds([...state.selected], state.items);
   if (unknown.length) changeSelection(new Set(known));
+  state.layoutWarnings = data.warnings || [];
+  const warn = state.layoutWarnings.length ? '⚠ ' : '';
   const word = data.layout
-    ? `Word table: ${data.layout} (${data.word_columns.length} columns)`
+    ? `${warn}Word table: ${data.layout} (${data.word_columns.length} columns)`
     : 'Word table: automatic (all columns)';
   el.source.textContent = `Database: ${data.source} · ${word}`;
-  el.source.title = `Columns in the Word table: ${data.word_columns.join(', ')}`;
+  el.source.title = [`Columns in the Word table: ${data.word_columns.join(', ')}`,
+    ...state.layoutWarnings.map((w) => `⚠ ${w}`)].join('\n');
   renderHeader();
   renderRows();
   return unknown;
@@ -1176,6 +1260,7 @@ async function init() {
   await loadSettings();
   try {
     await loadItems();
+    if (state.layoutWarnings.length) showStatus(layoutWarningText(state.layoutWarnings), 'warn');
   } catch (err) {
     showStatus(`${err.message} – check the item database in Settings.`, 'error');
     el.settings.open = true;

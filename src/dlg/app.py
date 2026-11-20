@@ -16,10 +16,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from dlg import get_version
-from dlg.config import Config, ConfigError, font_size_problem, save_config
-from dlg.docgen import DocgenError, OutputLockedError, check_template, generate_declared_list
+from dlg.config import Config, ConfigError, empty_input_text_problem, font_size_problem, save_config
+from dlg.docgen import (
+    DocgenError, OutputLockedError, check_template, column_weights, fill_empty_inputs, generate_declared_list,
+)
 from dlg.filebrowser import BrowseError, BrowseNotFoundError, Listing, list_folder
-from dlg.layout import LayoutError, TableLayout, apply_layout, load_layout
+from dlg.layout import HeaderCell, LayoutError, TableLayout, apply_layout, load_layout
 from dlg.models import Column, Item, ItemTable, Session
 from dlg.opener import OpenError, Opener, open_path
 from dlg.sessions import WINDOWS_RESERVED_NAMES, SessionError, SessionNotFoundError, SessionStore
@@ -67,6 +69,8 @@ class SettingsResponse(BaseModel):
         table_layout_file: Workbook with the Word layout sheet ('' = the item database).
         table_layout_sheet: Name of the Word layout sheet.
         table_font_size: Word table font size in pt (0 = template font).
+        mark_empty_inputs: Write ``empty_input_text`` into empty input cells in Word.
+        empty_input_text: Text for empty input cells (e.g. ``TBD``).
         config_file: Configuration file the settings are saved to ('' if none).
     """
 
@@ -79,6 +83,8 @@ class SettingsResponse(BaseModel):
     table_layout_file: str
     table_layout_sheet: str
     table_font_size: float
+    mark_empty_inputs: bool
+    empty_input_text: str
     config_file: str
 
 
@@ -99,6 +105,8 @@ class SettingsUpdate(BaseModel):
         table_layout_sheet: New layout sheet name (non-empty).
         table_font_size: New Word table font size in pt (0 = template font,
             else 4–72 in steps of 0.5).
+        mark_empty_inputs: Write ``empty_input_text`` into empty input cells.
+        empty_input_text: New text for empty input cells (non-empty).
     """
 
     items_file: str | None = None
@@ -110,6 +118,8 @@ class SettingsUpdate(BaseModel):
     table_layout_file: str | None = None
     table_layout_sheet: str | None = Field(default=None, max_length=100)
     table_font_size: float | None = None
+    mark_empty_inputs: bool | None = None
+    empty_input_text: str | None = None
 
 
 class InfoResponse(BaseModel):
@@ -133,7 +143,9 @@ class ItemsResponse(BaseModel):
         items: All selectable items.
         layout: Where the Word table layout comes from (e.g.
             ``items.xlsx › Word layout``); '' for the automatic table.
-        word_columns: Columns of the Word table, in order.
+        word_columns: Columns of the Word table, in order (blank columns
+            marked ``(blank)``).
+        warnings: Word table layout problems that do not stop the export.
     """
 
     source: str
@@ -142,6 +154,59 @@ class ItemsResponse(BaseModel):
     items: list[Item]
     layout: str = ""
     word_columns: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class LayoutColumnInfo(BaseModel):
+    """One Word table column in ``GET /api/layout``.
+
+    Attributes:
+        label: Display text (blank columns marked ``(blank)``).
+        user_input: True for an input (``*``) column.
+        blank: True if the column is exported empty.
+    """
+
+    label: str
+    user_input: bool = False
+    blank: bool = False
+
+
+class HeaderCellInfo(BaseModel):
+    """One (possibly merged) Word header cell in ``GET /api/layout``.
+
+    Attributes:
+        row: Zero-based header row.
+        col: Zero-based column.
+        text: Cell text (may contain line breaks).
+        row_span: Header rows covered.
+        col_span: Columns covered.
+    """
+
+    row: int
+    col: int
+    text: str
+    row_span: int = 1
+    col_span: int = 1
+
+
+class LayoutResponse(BaseModel):
+    """Response of ``GET /api/layout``: the Word table as it will be exported.
+
+    Attributes:
+        source: Origin of the layout ('' for the automatic table).
+        header_rows: Number of header rows.
+        columns: Word table columns, in order.
+        cells: Header cells covering the ``header_rows`` x ``len(columns)`` grid.
+        widths: Relative column widths as fractions of the table width (sum 1).
+        warnings: Layout problems that do not stop the export.
+    """
+
+    source: str
+    header_rows: int
+    columns: list[LayoutColumnInfo]
+    cells: list[HeaderCellInfo]
+    widths: list[float]
+    warnings: list[str] = Field(default_factory=list)
 
 
 class SessionSummary(BaseModel):
@@ -268,11 +333,19 @@ class ExportResponse(BaseModel):
         path: Full path of the written file.
         file_name: Its file name.
         count: Number of items in the declared list.
+        warnings: Word table layout problems (the document was still written).
+        empty_inputs: Number of empty cells per input column of the Word
+            table, only columns with at least one, in table order.
+        empty_input_text: Text written into those cells; '' when they were
+            left empty (setting off).
     """
 
     path: str
     file_name: str
     count: int
+    warnings: list[str] = Field(default_factory=list)
+    empty_inputs: dict[str, int] = Field(default_factory=dict)
+    empty_input_text: str = ""
 
 
 def output_file_name(name: str) -> str:
@@ -386,7 +459,7 @@ def create_app(
                 layout = load_layout(cfg.items_file, cfg.table_layout_sheet, required=False)
             else:
                 layout = load_layout(cfg.table_layout_file, cfg.table_layout_sheet, required=True)
-            return (apply_layout(table, layout) if layout else table), layout
+            return apply_layout(table, layout) if layout else (table, None)
         except ItemSourceError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         except LayoutError as exc:
@@ -419,7 +492,34 @@ def create_app(
         return ItemsResponse(
             source=source().name, id_column=table.id_column, columns=table.columns, items=table.items,
             layout=layout.source if layout else "",
-            word_columns=layout.column_names if layout else table.column_names,
+            word_columns=layout.column_labels if layout else table.column_names,
+            warnings=layout.warnings if layout else [],
+        )
+
+    @app.get("/api/layout", response_model=LayoutResponse)
+    def get_layout() -> LayoutResponse:
+        """Return the Word table header and columns, for checking the layout before exporting.
+
+        Without a layout sheet this describes the automatic table; its widths
+        are estimated from all items (the export uses the selected ones).
+        """
+        table, layout = load_data()
+        if layout is None:
+            columns = [LayoutColumnInfo(label=c.name, user_input=c.user_input) for c in table.columns]
+            cells = [HeaderCell(0, i, c.name) for i, c in enumerate(table.columns)]
+            weights = column_weights(table.column_names, table.items)
+            header_rows, source, warnings = 1, "", []
+        else:
+            columns = [LayoutColumnInfo(label=c.label, user_input=c.user_input, blank=c.blank)
+                       for c in layout.columns]
+            cells, weights = layout.cells, layout.widths
+            header_rows, source, warnings = layout.header_rows, layout.source, layout.warnings
+        total = sum(weights) or 1.0
+        return LayoutResponse(
+            source=source, header_rows=header_rows, columns=columns,
+            cells=[HeaderCellInfo(row=c.row, col=c.col, text=c.text, row_span=c.row_span, col_span=c.col_span)
+                   for c in cells],
+            widths=[round(w / total, 4) for w in weights], warnings=warnings,
         )
 
     @app.get("/api/sessions", response_model=list[SessionSummary])
@@ -558,6 +658,13 @@ def create_app(
         if target.exists() and not req.overwrite:
             raise HTTPException(status_code=409, detail=f"{name} already exists in {cfg.output_dir}.")
         items = [i for i in table.with_user_values(req.user_values) if i.id in wanted]
+        # Counted even with the setting off, so the user hears about missing input either way.
+        word_keys = layout.column_keys if layout else table.column_names
+        input_names = {c.name for c in table.columns if c.user_input}
+        inputs = [k for k in word_keys if k is not None and k in input_names]
+        filled, counts = fill_empty_inputs(items, inputs, cfg.empty_input_text)
+        if cfg.mark_empty_inputs:
+            items = filled
         try:
             generate_declared_list(
                 cfg.template_file, table.column_names, items, target, req.configuration_name.strip(), layout,
@@ -567,7 +674,11 @@ def create_app(
             raise HTTPException(status_code=423, detail=str(exc)) from exc
         except DocgenError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
-        return ExportResponse(path=str(target), file_name=name, count=len(items))
+        return ExportResponse(
+            path=str(target), file_name=name, count=len(items), warnings=layout.warnings if layout else [],
+            empty_inputs={k: n for k, n in counts.items() if n},
+            empty_input_text=cfg.empty_input_text if cfg.mark_empty_inputs else "",
+        )
 
     @app.post("/api/open", status_code=204, dependencies=[Depends(require_local)])
     def open_document(req: OpenRequest) -> Response:
@@ -601,6 +712,8 @@ def create_app(
             table_layout_file=str(cfg.table_layout_file) if cfg.table_layout_file else "",
             table_layout_sheet=cfg.table_layout_sheet,
             table_font_size=cfg.table_font_size,
+            mark_empty_inputs=cfg.mark_empty_inputs,
+            empty_input_text=cfg.empty_input_text,
             config_file=str(config_path) if config_path else "",
         )
 
@@ -626,6 +739,14 @@ def create_app(
             if problem:
                 raise HTTPException(status_code=400, detail=problem)
             table_font_size = float(req.table_font_size)
+        mark_empty_inputs, empty_input_text = cfg.mark_empty_inputs, cfg.empty_input_text
+        if req.mark_empty_inputs is not None:
+            mark_empty_inputs = req.mark_empty_inputs
+        if req.empty_input_text is not None:
+            empty_input_text = req.empty_input_text.strip()
+            problem = empty_input_text_problem(empty_input_text)
+            if problem:
+                raise HTTPException(status_code=400, detail=problem)
         if req.items_file is not None:
             items_file = _checked_path(req.items_file, "Item database")
             if items_file.suffix.lower() != ".xlsx":
@@ -681,10 +802,11 @@ def create_app(
             if not table_layout_sheet:
                 raise HTTPException(status_code=400, detail="Layout sheet: enter the name of the sheet.")
         names = ("items_file", "id_column", "template_file", "output_dir", "sessions_dir", "global_sessions_dir",
-                 "table_layout_file", "table_layout_sheet", "table_font_size")
+                 "table_layout_file", "table_layout_sheet", "table_font_size", "mark_empty_inputs",
+                 "empty_input_text")
         old = {n: getattr(cfg, n) for n in names}
         new = (items_file, id_column, template_file, output_dir, sessions_dir, global_sessions_dir,
-               table_layout_file, table_layout_sheet, table_font_size)
+               table_layout_file, table_layout_sheet, table_font_size, mark_empty_inputs, empty_input_text)
         for n, value in zip(names, new):
             setattr(cfg, n, value)
         if config_path is not None:

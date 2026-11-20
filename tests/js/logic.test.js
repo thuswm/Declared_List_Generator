@@ -2,8 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  chooseFilter, currentLabel, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds,
-  filterSessions, sessionLabel, setMany, setUserValue, sortSessions, suggestFileName, withUserValues,
+  chooseFilter, currentLabel, emptyInputsText, errorMessage, formatDateTime, headerRows, filterItems, filterValues, headerState, matchesQuery, partitionIds,
+  filterSessions, layoutWarningText, sessionLabel, setMany, setUserValue, sortSessions, suggestFileName, withUserValues,
 } from '../../src/dlg/static/logic.js';
 
 const row = (id, name, description, category, supplier = '') => (
@@ -193,4 +193,43 @@ test('sortSessions: natural text order, numbers, dates, direction, ties newest f
   // Blank configuration sorts last, as in the column filter lists.
   assert.deepEqual(sortSessions(LIB, 'configuration_name', 'asc').map((s) => s.name), ['Alpha', 'Rig 10', 'rig 2']);
   assert.equal(LIB[0].name, 'Rig 10'); // input not modified
+});
+
+test('layoutWarningText: empty without warnings, counted and joined otherwise', () => {
+  assert.equal(layoutWarningText([]), '');
+  assert.equal(layoutWarningText(undefined), '');
+  assert.equal(layoutWarningText(['A.']), 'Word table: 1 warning – A.');
+  assert.equal(layoutWarningText(['A.', 'B.']), 'Word table: 2 warnings – A. B.');
+});
+
+test('emptyInputsText: nothing empty, left empty, written as text', () => {
+  assert.equal(emptyInputsText({}, 'TBD'), '');
+  assert.equal(emptyInputsText(undefined, ''), '');
+  assert.equal(emptyInputsText({ Lot: 2, Note: 1 }, ''), 'Empty input cells: Lot 2, Note 1 (left empty).');
+  assert.equal(emptyInputsText({ Lot: 2 }, 'TBD'), 'Empty input cells: Lot 2 (written as TBD).');
+});
+
+test('formatDateTime: local YYYY-MM-DD HH:MM, zero-padded; invalid input unchanged', () => {
+  // Built from local components, so the test passes in any time zone.
+  const local = new Date(2026, 0, 5, 7, 3, 59);
+  assert.equal(formatDateTime(local.toISOString()), '2026-01-05 07:03');
+  assert.equal(formatDateTime(new Date(2026, 10, 20, 23, 45).toISOString()), '2026-11-20 23:45');
+  assert.equal(formatDateTime('not a date'), 'not a date');
+  assert.equal(formatDateTime(''), '');
+});
+
+test('sessionLabel uses ISO date and time by default', () => {
+  const modified = new Date(2026, 10, 20, 9, 5).toISOString();
+  assert.equal(sessionLabel({ name: 'P', count: 2, modified }), 'P — 2 items — 2026-11-20 09:05');
+});
+
+test('headerRows groups cells by row, sorted by column; ignores cells outside', () => {
+  const cells = [
+    { row: 1, col: 1, text: 'Current' }, { row: 0, col: 2, text: 'Doc', row_span: 2 },
+    { row: 0, col: 0, text: 'Electrical', col_span: 2 }, { row: 1, col: 0, text: 'Voltage' },
+    { row: 5, col: 0, text: 'stray' },
+  ];
+  assert.deepEqual(headerRows(2, cells).map((r) => r.map((c) => c.text)),
+    [['Electrical', 'Doc'], ['Voltage', 'Current']]);
+  assert.deepEqual(headerRows(1, []), [[]]);
 });

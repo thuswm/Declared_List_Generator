@@ -3,6 +3,52 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-20 – Windows start script (0.4.0 step 8)
+- `start_dlg.bat` calls `%~dp0.venv\Scripts\python.exe -m dlg %*` directly instead of activating the venv (same effect, no PowerShell execution-policy issue); `cd /d "%~dp0"` so shortcuts and paths with spaces work.
+- `pause` only on failure (missing `.venv`, non-zero exit), so a normal Exit closes the window but errors stay readable.
+- File is plain ASCII with **CRLF**; `.gitattributes` `*.bat text eol=crlf` keeps it so on every checkout (cmd.exe labels/`goto` can fail with LF). Not runnable on Linux: `tests/test_start_script.py` checks endings and key lines (read as bytes: `read_text` hides CRLF). **Needs a real Windows run** in the release check.
+
+## 2026-11-20 – Word table check dialog (0.4.0 step 7)
+- `GET /api/layout` (not local-only, like `/api/items`): `source`, `header_rows`, `columns` (label, user_input, blank), `cells` (spans), `widths` as fractions summing to 1, `warnings`. Same `load_data()` as items/export, so the check always matches what export would do; layout errors give the same 500.
+- Automatic table: one header row of the shown columns; widths from `column_weights` over **all** items (the export uses the selected ones; the dialog says so).
+- GUI: "Check Word table…" button in the export row opens a `<dialog>`; the header is drawn as an HTML table with `rowSpan`/`colSpan` and a `<colgroup>` of percentages (`table-layout: fixed`). `headerRows()` in `logic.js` groups cells per row (Node-tested). Fetched fresh on every open.
+- Checked visually with headless Firefox (scratch copy of the static files, data embedded): merges, widths, mapping row and warnings render correctly. Gotcha: `.layout-table td` outranks a bare `.layout-blank`, so the state classes are qualified (`.layout-table td.layout-blank`).
+
+## 2026-11-20 – ISO dates in the GUI (0.4.0 step 6)
+- `formatDateTime()` in `logic.js`: local time as `YYYY-MM-DD HH:MM` (no seconds), built from `Date` getters, not `toLocaleString()` (browser-language dependent). Invalid input is returned unchanged. Used by the session library "Modified" column and as `sessionLabel`'s default formatter. Server timestamps stay ISO 8601 UTC; library sorting still compares those strings.
+- Node test builds dates from local components, so it passes in any `TZ` (checked with UTC+1, America/Los_Angeles, Asia/Kolkata).
+
+## 2026-11-20 – Export summary of empty input cells (0.4.0 step 5)
+- `ExportResponse.empty_inputs` (only columns with ≥ 1 empty cell, in **Word table order**) and `empty_input_text` (`''` when the TBD setting is off). Counted **always**, not only with TBD on: the point is to notice missing input before the document goes out.
+- GUI: `emptyInputsText()` in `logic.js`; the export status becomes `warn` when there are empty input cells or layout warnings.
+
+## 2026-11-20 – "TBD" for empty input cells (0.4.0 step 4)
+- Applied **on the items at export** (`docgen.fill_empty_inputs`, called from `/api/export`), not in the table builder: one place for the layout and automatic tables, blank layout columns have no key so are never filled, and the per-column counts it returns feed step 5.
+- Only input columns that are **in the Word table** are filled (layout: `column_keys`; automatic: all shown columns). Space-only values count as empty. Typed values in the browser/session are never changed.
+- Config: `mark_empty_inputs` (TOML bool, strictly `true`/`false`) and `empty_input_text` (stripped, 1–100 chars, checked on load and in `PUT /api/settings`). The GUI sends `TBD` when the field is emptied, so a cleared field never blocks saving the other settings.
+
+## 2026-11-20 – Lenient column matching (0.4.0 step 3)
+- In `apply_layout`, via `_match_column`: exact name first, else `" ".join(name.split()).casefold()` equality. A loose match gives a warning and the layout column is **renamed to the database name**, so item keys, session `user_values` and input columns all use the database spelling.
+- Loose match on two database columns → `LayoutError` (no guessing). Two mapping cells resolving to the same column (e.g. `Volt` and `volt`, or `Lot*` and `LOT*`) → `LayoutError` "both map the column" (the exact duplicate check in `parse_layout` cannot see these).
+- Header text in a one-row header keeps the user's spelling from the sheet.
+
+## 2026-11-20 – Blank Word columns and layout warnings (0.4.0 steps 1–2)
+- `TableLayout.columns` is now a list of `LayoutColumn` (name, user_input, **blank**, ref = Excel cell) instead of `models.Column`: blank columns are Word-only and must never reach the browser table or the session. `column_keys` gives `None` for blank columns; docgen writes `""` for them (no reliance on a missing key in `Item.values`).
+- `TableLayout.warnings`: `parse_layout` adds one per empty mapping cell; `apply_layout` adds one per unknown non-`*` name and now returns **`(table, layout)`** (layout copied via `dataclasses.replace`, inputs untouched). Unknown names keep their text (label `Colour (blank)`, and the header text in a one-row header).
+- `-` → blank, no warning. `-*` is an error (a blank column cannot be an input column). Table span unchanged (first → last *filled* mapping cell; `-` counts as filled).
+- API: `ItemsResponse.warnings`, `ExportResponse.warnings`; `word_columns` holds display labels (blank columns marked `(blank)`). GUI: `layoutWarningText()` in `logic.js`; warn status on start, after Settings save and after export; ⚠ on the "Word table" label, warnings in its tooltip.
+- Step 2: unmapped database columns were already allowed; covered by `test_unmapped_database_columns_are_allowed` and a README sentence.
+
+## 2026-11-20 – 0.4.0 planning decisions (user, plan approved)
+- **`-` placeholder** in a mapping cell = blank Word column on purpose (no warning, works at the table edge); the table span stays first → last filled mapping cell so notes beside the table are never picked up.
+- Optional steps O1–O4 (preview, lenient matching, `start_dlg.bat`, export summary) all taken into 0.4.0.
+- Source: user's Windows test of the 0.3.0 pre-release. Background: the tool is being prepared for a real database where some Word columns will have no database counterpart.
+- **"To be filled in by the user" = the existing `*` input column**, typed in the tool. It already works for columns the database lacks (0.3.0 appends them); no new marker in the layout sheet.
+- **Missing data is a warning, not an error:** an empty mapping cell inside the table or an unknown non-`*` name → blank Word column + warning.
+- **"TBD" option:** a setting writes a text (default `TBD`) into empty cells of **input (`*`) columns only** (user choice over "input + blank columns" and "every empty cell").
+- **ISO dates:** the non-ISO dates seen were the session library's "Modified" column (browser locale). Excel date cells are already `YYYY-MM-DD`.
+- Database columns that are not mapped are fine (already the case); only documented and tested.
+
 ## 2026-11-19 – Open document / folder after export (0.3.0 step 7)
 - `POST /api/open {file_name, folder}` (local-only, 204). It takes a **plain file name, not a path**: it must equal `Path(name).name`, contain no `/` or `\`, end in `.docx` and exist in the *current* output folder (400/404 otherwise). The browser can therefore never make the server open another file or start a program.
 - `dlg/opener.py` `open_path(path, folder)`: on Windows `os.startfile` for the document and `explorer "/select,<path>"` for the folder (file highlighted; Explorer's exit code is meaningless, so it is not checked); on macOS `open` / `open -R`; elsewhere a detached, silent `xdg-open` (file or parent folder). `OSError` (e.g. no xdg-open) → `OpenError` → 500 with message.

@@ -12,8 +12,8 @@ from fastapi.testclient import TestClient
 from dlg.app import create_app
 from dlg.config import Config, ConfigError, load_config, save_config
 from dlg.docgen import build_document
-from dlg.layout import HeaderCell, TableLayout
-from dlg.models import Column, Item
+from dlg.layout import HeaderCell, LayoutColumn, TableLayout
+from dlg.models import Item
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "templates" / "declared_list_template.docx"
@@ -41,7 +41,7 @@ def test_font_size_applies_to_every_cell_including_empty_ones() -> None:
 def test_font_size_with_merged_header_and_valid_order() -> None:
     """Merged header cells get the size once; rPr follows jc inside pPr."""
     layout = TableLayout(
-        columns=[Column(name="ID"), Column(name="Name")], header_rows=1,
+        columns=[LayoutColumn(name="ID"), LayoutColumn(name="Name")], header_rows=1,
         cells=[HeaderCell(0, 0, "Item", 1, 2)], widths=[1, 1],
     )
     doc = build_document(TEMPLATE, [], ITEMS, layout=layout, font_size=7)

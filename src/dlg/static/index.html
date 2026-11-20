@@ -61,6 +61,13 @@
         <span class="muted small">pt · 0 or empty = the template's font size</span>
       </div>
       <div class="row">
+        <span class="label-like">Empty input cells</span>
+        <label class="inline"><input id="mark-empty" type="checkbox"> Write</label>
+        <input id="empty-text" type="text" maxlength="100" class="font-size" spellcheck="false" placeholder="TBD"
+               aria-label="Text for empty input cells">
+        <span class="muted small">in Word cells of input (*) columns left empty</span>
+      </div>
+      <div class="row">
         <label for="output-dir">Output folder</label>
         <input id="output-dir" type="text" class="wide path" spellcheck="false" placeholder="Folder for generated Word documents">
         <button id="output-browse" type="button">Browse…</button>
@@ -106,6 +113,7 @@
         <input id="file-name" type="text" maxlength="200" spellcheck="false" class="file-name">
         <span class="muted">.docx</span>
         <button id="file-name-reset" type="button" title="Use the name suggested from the configuration or session name" disabled>Reset name</button>
+        <button id="layout-btn" type="button" title="Show the Word table header and any layout warnings">Check Word table…</button>
         <button id="export-btn" type="button" class="primary">Export Word document</button>
         <button id="open-doc-btn" type="button" hidden>Open document</button>
         <button id="open-folder-btn" type="button" hidden>Open folder</button>
@@ -165,6 +173,23 @@
       <button id="library-delete" type="button" class="danger" disabled>Delete</button>
       <button id="library-close" type="button">Close</button>
       <button id="library-load" type="button" class="accent" disabled>Load</button>
+    </div>
+  </dialog>
+
+  <!-- Word table check: the header as it will be exported, plus layout warnings. -->
+  <dialog id="layout-dialog" class="library-dialog" aria-labelledby="layout-title">
+    <h2 id="layout-title">Word table</h2>
+    <p id="layout-source" class="muted small"></p>
+    <div class="layout-wrap">
+      <table id="layout-table" class="layout-table"></table>
+    </div>
+    <p class="muted small">Column widths are shown in proportion. The last row shows where each column's data comes
+      from: <span class="layout-input">input *</span> = typed in the tool,
+      <span class="layout-blank">(blank)</span> = left empty in Word.</p>
+    <ul id="layout-warnings" class="layout-warnings" hidden></ul>
+    <p id="layout-error" class="browse-error" role="alert" hidden></p>
+    <div class="row browse-actions">
+      <button id="layout-close" type="button" class="accent">Close</button>
     </div>
   </dialog>
 
