@@ -3,6 +3,23 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-20 – Blank Word columns and layout warnings (0.4.0 steps 1–2)
+- `TableLayout.columns` is now a list of `LayoutColumn` (name, user_input, **blank**, ref = Excel cell) instead of `models.Column`: blank columns are Word-only and must never reach the browser table or the session. `column_keys` gives `None` for blank columns; docgen writes `""` for them (no reliance on a missing key in `Item.values`).
+- `TableLayout.warnings`: `parse_layout` adds one per empty mapping cell; `apply_layout` adds one per unknown non-`*` name and now returns **`(table, layout)`** (layout copied via `dataclasses.replace`, inputs untouched). Unknown names keep their text (label `Colour (blank)`, and the header text in a one-row header).
+- `-` → blank, no warning. `-*` is an error (a blank column cannot be an input column). Table span unchanged (first → last *filled* mapping cell; `-` counts as filled).
+- API: `ItemsResponse.warnings`, `ExportResponse.warnings`; `word_columns` holds display labels (blank columns marked `(blank)`). GUI: `layoutWarningText()` in `logic.js`; warn status on start, after Settings save and after export; ⚠ on the "Word table" label, warnings in its tooltip.
+- Step 2: unmapped database columns were already allowed; covered by `test_unmapped_database_columns_are_allowed` and a README sentence.
+
+## 2026-11-20 – 0.4.0 planning decisions (user, plan approved)
+- **`-` placeholder** in a mapping cell = blank Word column on purpose (no warning, works at the table edge); the table span stays first → last filled mapping cell so notes beside the table are never picked up.
+- Optional steps O1–O4 (preview, lenient matching, `start_dlg.bat`, export summary) all taken into 0.4.0.
+- Source: user's Windows test of the 0.3.0 pre-release. Background: the tool is being prepared for a real database where some Word columns will have no database counterpart.
+- **"To be filled in by the user" = the existing `*` input column**, typed in the tool. It already works for columns the database lacks (0.3.0 appends them); no new marker in the layout sheet.
+- **Missing data is a warning, not an error:** an empty mapping cell inside the table or an unknown non-`*` name → blank Word column + warning.
+- **"TBD" option:** a setting writes a text (default `TBD`) into empty cells of **input (`*`) columns only** (user choice over "input + blank columns" and "every empty cell").
+- **ISO dates:** the non-ISO dates seen were the session library's "Modified" column (browser locale). Excel date cells are already `YYYY-MM-DD`.
+- Database columns that are not mapped are fine (already the case); only documented and tested.
+
 ## 2026-11-19 – Open document / folder after export (0.3.0 step 7)
 - `POST /api/open {file_name, folder}` (local-only, 204). It takes a **plain file name, not a path**: it must equal `Path(name).name`, contain no `/` or `\`, end in `.docx` and exist in the *current* output folder (400/404 otherwise). The browser can therefore never make the server open another file or start a program.
 - `dlg/opener.py` `open_path(path, folder)`: on Windows `os.startfile` for the document and `explorer "/select,<path>"` for the folder (file highlighted; Explorer's exit code is meaningless, so it is not checked); on macOS `open` / `open -R`; elsewhere a detached, silent `xdg-open` (file or parent folder). `OSError` (e.g. no xdg-open) → `OpenError` → 500 with message.

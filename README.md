@@ -228,19 +228,26 @@ another `.xlsx` and sheet. Example: `data/layout_example.xlsx` (written by
 
 - The **last used row is the mapping row**. Each cell names a column of the
   data sheet; the selected items are written beneath the header in that order.
-  The mapping row itself is **not printed**. Every cell between its first and
-  last filled cell must name a column; a column may be mapped once.
+  The mapping row itself is **not printed**. The table spans its first to last
+  filled cell; a column may be mapped once.
+- A **`-`** in the mapping row is a **blank Word column** on purpose: its cells
+  stay empty (the header comes from the rows above). It also works at the left
+  or right edge of the table.
 - The rows **above** it are the Word header: free text; merged cells (across
   and down) become merged cells in Word; Alt+Enter line breaks are kept. With
   no rows above, the mapping names form a one-row header. Merged cells must not
   include the mapping row (merging erases the text of all but the first cell).
-- **Only mapped columns** go to Word, in mapping order. Unmapped columns are
-  still shown in the browser (hide them there with `#` as before).
+- **Only mapped columns** go to Word, in mapping order. Database columns that
+  are not mapped are fine: they are still shown in the browser (hide them there
+  with `#` as before) but not written to Word.
 - A mapping name ending in `*` is a **user-input column**, even if the data
   sheet has it as a normal column. It does not have to exist in the database:
   the tool adds it to the browser table as an input column.
-- A mapping name that is not a shown database column (and has no `*`) is an
-  error that lists the available columns.
+- An **empty mapping cell** inside the table, or a mapping name that is not a
+  shown database column (and has no `*`), gives a blank Word column plus a
+  **warning** (status bar, ⚠ on the "Word table" label; hover it for details).
+  The export still works. Use `-` to silence the warning, or `*` to type the
+  column in the tool.
 - **Column widths** in the layout sheet set the relative widths in Word,
   scaled to the page width.
 - No layout sheet in the database workbook → the automatic table. A separately

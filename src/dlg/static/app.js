@@ -6,7 +6,7 @@
  */
 import {
   chooseFilter, currentLabel, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds,
-  filterSessions, sessionLabel, setMany, setUserValue, sortSessions, suggestFileName, withUserValues,
+  filterSessions, layoutWarningText, sessionLabel, setMany, setUserValue, sortSessions, suggestFileName, withUserValues,
 } from './logic.js';
 
 /** Label shown for empty cells in a filter list. */
@@ -27,6 +27,7 @@ const state = {
   libraryDirs: { user: '', global: '' }, // session library folders from the settings
   configurationName: '', // configuration name of that session, as last loaded or saved
   userValues: {}, // values typed in user-input columns: {itemId: {column: value}}
+  layoutWarnings: [], // Word table layout warnings from the last item load
   savedDatabase: '', // database, ID column and layout settings as last saved (detects a column change)
   fileNameEdited: false, // the user typed a file name; stop suggesting one
   exportedFile: '', // file name of the last export (for Open document / Open folder)
@@ -799,7 +800,9 @@ async function exportDocument() {
       }
       result = await sendJson('/api/export', 'POST', { ...body, overwrite: true });
     }
-    showStatus(`Saved ${result.count} item${result.count === 1 ? '' : 's'} to ${result.path}`);
+    const warning = layoutWarningText(result.warnings);
+    showStatus(`Saved ${result.count} item${result.count === 1 ? '' : 's'} to ${result.path}`
+      + (warning ? `. ${warning}` : ''), warning ? 'warn' : 'ok');
     state.exportedFile = result.file_name;
     el.openDoc.title = `Open ${result.file_name} in Word`;
     el.openFolder.title = `Show ${result.file_name} in its folder`;
@@ -886,7 +889,9 @@ async function saveSettings() {
         showStatus(`Settings saved. ${dropped.length} selected item(s) are not in the new database `
           + `and were deselected: ${dropped.join(', ')}`, 'warn');
       } else {
-        showStatus(`Settings saved. Loaded ${state.items.length} items.`);
+        const warning = layoutWarningText(state.layoutWarnings);
+        showStatus(`Settings saved. Loaded ${state.items.length} items.${warning ? ` ${warning}` : ''}`,
+          warning ? 'warn' : 'ok');
       }
     } catch (err) {
       state.items = [];
@@ -1147,11 +1152,14 @@ async function loadItems() {
   }
   const { known, unknown } = partitionIds([...state.selected], state.items);
   if (unknown.length) changeSelection(new Set(known));
+  state.layoutWarnings = data.warnings || [];
+  const warn = state.layoutWarnings.length ? '⚠ ' : '';
   const word = data.layout
-    ? `Word table: ${data.layout} (${data.word_columns.length} columns)`
+    ? `${warn}Word table: ${data.layout} (${data.word_columns.length} columns)`
     : 'Word table: automatic (all columns)';
   el.source.textContent = `Database: ${data.source} · ${word}`;
-  el.source.title = `Columns in the Word table: ${data.word_columns.join(', ')}`;
+  el.source.title = [`Columns in the Word table: ${data.word_columns.join(', ')}`,
+    ...state.layoutWarnings.map((w) => `⚠ ${w}`)].join('\n');
   renderHeader();
   renderRows();
   return unknown;
@@ -1176,6 +1184,7 @@ async function init() {
   await loadSettings();
   try {
     await loadItems();
+    if (state.layoutWarnings.length) showStatus(layoutWarningText(state.layoutWarnings), 'warn');
   } catch (err) {
     showStatus(`${err.message} – check the item database in Settings.`, 'error');
     el.settings.open = true;

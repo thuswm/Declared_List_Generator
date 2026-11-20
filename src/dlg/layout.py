@@ -7,18 +7,21 @@ database workbook):
   of the data sheet; the data rows go beneath the header in that order. The
   mapping row itself is not printed.
 * The table spans the columns from the first to the last filled cell of the
-  mapping row; every cell in between must name a column.
+  mapping row. A ``-`` there is a blank Word column on purpose (it may also
+  sit at the table edge). An empty cell in between, or a name the database
+  lacks, also gives a blank column, but with a warning.
 * The rows above the mapping row (from the first row with text) are the Word
   header. They hold free text, and merged cells (across and down) become merged
   cells in Word. With no rows above, the mapping names form a one-row header.
 * A mapping name ending in ``*`` is a user-input column. It does not have to
   exist in the database: the tool then adds it as an input column.
+* Blank columns are Word-only: exported empty and not shown in the browser.
 * The Excel column widths set the relative Word column widths.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -30,6 +33,9 @@ from dlg.sources.excel import INPUT_MARKER, cell_text
 
 #: Default name of the layout sheet inside the item database workbook.
 DEFAULT_LAYOUT_SHEET = "Word layout"
+
+#: Mapping-cell text for a Word column that is blank on purpose.
+BLANK_MARKER = "-"
 
 #: Excel's default column width (characters) for columns without a set width.
 EXCEL_DEFAULT_WIDTH = 8.43
@@ -64,27 +70,65 @@ class HeaderCell:
 
 
 @dataclass
+class LayoutColumn:
+    """One column of the Word table, as named in the mapping row.
+
+    Attributes:
+        name: Mapping text without the ``*`` ('' for an empty cell or ``-``).
+        user_input: True if the name ended in ``*``.
+        blank: True if the column is exported empty (``-``, an empty cell, or
+            a name the database lacks).
+        ref: Excel cell of the mapping name, e.g. ``C5`` (for messages).
+    """
+
+    name: str
+    user_input: bool = False
+    blank: bool = False
+    ref: str = ""
+
+    @property
+    def label(self) -> str:
+        """Display text: the name, with blank columns marked."""
+        if not self.blank:
+            return self.name
+        return f"{self.name} (blank)" if self.name else "(blank)"
+
+
+@dataclass
 class TableLayout:
     """A Word table layout read from a layout sheet.
 
     Attributes:
-        columns: Mapped columns, in table order (``user_input`` from a ``*``).
+        columns: Word columns, in table order (``user_input`` from a ``*``).
         header_rows: Number of header rows (at least 1).
         cells: Header cells covering the ``header_rows`` x ``len(columns)`` grid.
         widths: Relative column widths (Excel character units), one per column.
         source: Human-readable origin, e.g. ``items.xlsx › Word layout``.
+        warnings: Problems that do not stop the export (blank columns that
+            were probably not meant to be blank).
     """
 
-    columns: list[Column]
+    columns: list[LayoutColumn]
     header_rows: int
     cells: list[HeaderCell]
     widths: list[float]
     source: str = ""
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def column_names(self) -> list[str]:
-        """Names of the mapped columns, in table order."""
+        """Mapping names of the Word columns, in table order ('' for unnamed blanks)."""
         return [c.name for c in self.columns]
+
+    @property
+    def column_keys(self) -> list[str | None]:
+        """Item value keys per Word column; None for a blank column."""
+        return [None if c.blank else c.name for c in self.columns]
+
+    @property
+    def column_labels(self) -> list[str]:
+        """Display texts of the Word columns, blank columns marked."""
+        return [c.label for c in self.columns]
 
 
 def load_layout(path: str | Path, sheet: str, required: bool) -> TableLayout | None:
@@ -149,11 +193,12 @@ def parse_layout(ws: Worksheet, source: str) -> TableLayout:
         source: Origin for messages, e.g. ``items.xlsx › Word layout``.
 
     Returns:
-        The layout.
+        The layout; an empty mapping cell inside the table becomes a blank
+        column with a warning.
 
     Raises:
-        LayoutError: If the sheet is empty, the mapping row has gaps or
-            duplicates, or merged cells cross the mapping row or the table edge.
+        LayoutError: If the sheet is empty, the mapping row has duplicates or
+            a bare ``*``, or merged cells cross the mapping row or the table edge.
     """
     text = {
         (cell.row, cell.column): cell_text(cell.value)
@@ -167,23 +212,35 @@ def parse_layout(ws: Worksheet, source: str) -> TableLayout:
     map_cols = sorted(c for r, c in text if r == map_row)
     first_col, last_col = map_cols[0], map_cols[-1]
 
-    columns: list[Column] = []
+    columns: list[LayoutColumn] = []
+    warnings: list[str] = []
     for c in range(first_col, last_col + 1):
         ref = f"{get_column_letter(c)}{map_row}"
         name = text.get((map_row, c), "")
+        if name == BLANK_MARKER:
+            columns.append(LayoutColumn(name="", blank=True, ref=ref))
+            continue
         if not name:
-            raise LayoutError(
-                f"Layout sheet {source}: cell {ref} in the mapping row (the last used row) is empty; "
-                "every column of the table needs a column name there."
+            # A gap is most likely a forgotten name, so it is exported blank but reported.
+            warnings.append(
+                f"Cell {ref} in the mapping row is empty: that Word column stays blank. "
+                f"Type '{BLANK_MARKER}' there if it is meant to be blank."
             )
+            columns.append(LayoutColumn(name="", blank=True, ref=ref))
+            continue
         user_input = name.endswith(INPUT_MARKER)
         if user_input:
             name = name.rstrip(INPUT_MARKER).rstrip()
         if not name:
             raise LayoutError(f"Layout sheet {source}: cell {ref} has no column name before the '*'.")
+        if name == BLANK_MARKER:
+            raise LayoutError(
+                f"Layout sheet {source}: cell {ref}: '{BLANK_MARKER}' marks a blank column "
+                "and cannot be an input column."
+            )
         if name in [col.name for col in columns]:
             raise LayoutError(f"Layout sheet {source}: column '{name}' is mapped twice (cell {ref}).")
-        columns.append(Column(name=name, user_input=user_input))
+        columns.append(LayoutColumn(name=name, user_input=user_input, ref=ref))
 
     in_table = [r for r, c in text if r < map_row and first_col <= c <= last_col]
     first_row = min(in_table, default=map_row)
@@ -197,6 +254,7 @@ def parse_layout(ws: Worksheet, source: str) -> TableLayout:
         cells=cells,
         widths=_column_widths(ws, first_col, last_col),
         source=source,
+        warnings=warnings,
     )
 
 
@@ -290,37 +348,46 @@ def _column_widths(ws: Worksheet, first_col: int, last_col: int) -> list[float]:
     return [widths[c] for c in range(first_col, last_col + 1)]
 
 
-def apply_layout(table: ItemTable, layout: TableLayout) -> ItemTable:
+def apply_layout(table: ItemTable, layout: TableLayout) -> tuple[ItemTable, TableLayout]:
     """Merge the layout's columns into the item table shown in the browser.
 
     * A mapped column marked ``*`` becomes an input column even if the data
       sheet has it as a normal column (its sheet values are then ignored).
     * A mapped input column the database lacks is added (at the end) as an
       input column.
-    * Any other mapped column must exist in the database.
+    * Any other mapped column the database lacks becomes a blank Word column,
+      with a warning.
 
     Args:
         table: Columns and items from the data sheet.
         layout: The layout.
 
     Returns:
-        A new table (the input is not modified).
+        A new table and a new layout with unknown columns marked blank and
+        their warnings added (the inputs are not modified).
 
     Raises:
-        LayoutError: If a mapped column is unknown, or the ID column is marked
-            as user input.
+        LayoutError: If the ID column is marked as user input.
     """
     columns = [c.model_copy() for c in table.columns]
     by_name = {c.name: c for c in columns}
+    word_columns: list[LayoutColumn] = []
+    warnings = list(layout.warnings)
     for mapped in layout.columns:
+        word_columns.append(mapped)
+        if mapped.blank:
+            continue
         existing = by_name.get(mapped.name)
         if existing is None:
             if not mapped.user_input:
                 available = ", ".join(c.name for c in table.columns) or "(none)"
-                raise LayoutError(
-                    f"Layout sheet {layout.source}: column '{mapped.name}' is not in the item database. "
-                    f"Available columns: {available}. (Add '*' to make it a column you type in the tool.)"
+                warnings.append(
+                    f"Column '{mapped.name}' (cell {mapped.ref}) is not in the item database: that Word column "
+                    f"stays blank. Available columns: {available}. (Add '*' to type it in the tool, "
+                    f"or write '{BLANK_MARKER}' for a blank column.)"
                 )
+                word_columns[-1] = replace(mapped, blank=True)
+                continue
             new = Column(name=mapped.name, user_input=True)
             columns.append(new)
             by_name[new.name] = new
@@ -335,4 +402,7 @@ def apply_layout(table: ItemTable, layout: TableLayout) -> ItemTable:
         Item(id=i.id, values={c.name: "" if c.name in inputs else i.values.get(c.name, "") for c in columns})
         for i in table.items
     ]
-    return ItemTable(id_column=table.id_column, columns=columns, items=items)
+    return (
+        ItemTable(id_column=table.id_column, columns=columns, items=items),
+        replace(layout, columns=word_columns, warnings=warnings),
+    )

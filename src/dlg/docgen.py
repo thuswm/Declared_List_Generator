@@ -157,9 +157,8 @@ def build_document(
     """
     if not items:
         raise DocgenError("No items selected; nothing to put in the declared list.")
-    if layout is not None:
-        columns = layout.column_names
-    if not columns:
+    keys: Sequence[str | None] = columns if layout is None else layout.column_keys
+    if not keys:
         raise DocgenError("The item database has no columns to export.")
     doc = _open_template(template_path)
 
@@ -170,7 +169,7 @@ def build_document(
 
     placeholder = _find_placeholder(doc)
     section = doc.sections[_section_index(doc, placeholder._p)]
-    table = _build_table(doc, items, columns, _text_width(section), layout)
+    table = _build_table(doc, items, keys, _text_width(section), layout)
     if font_size:
         _set_font_size(table, font_size)
 
@@ -367,7 +366,7 @@ def _clean(text: str) -> str:
 def _build_table(
     doc: DocumentType,
     items: Sequence[Item],
-    columns: Sequence[str],
+    columns: Sequence[str | None],
     width: int,
     layout: TableLayout | None = None,
 ) -> Table:
@@ -377,7 +376,7 @@ def _build_table(
         doc: Document that will own the table.
         items: Items to list.
         columns: Column names (keys into ``Item.values``; also the header
-            texts when there is no layout).
+            texts when there is no layout). None marks a blank layout column.
         width: Total table width in EMU.
         layout: Multi-level header and relative widths; None for a one-row
             header with widths estimated from the content.
@@ -398,7 +397,7 @@ def _build_table(
         row = table.add_row()
         _no_split(row)
         for cell, name in zip(row.cells, columns):
-            cell.text = _clean(item.values.get(name, ""))
+            cell.text = "" if name is None else _clean(item.values.get(name, ""))
 
     # Word honours per-cell widths but LibreOffice and others follow the column
     # grid, so set both, plus a fixed layout and total width, to render alike.

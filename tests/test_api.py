@@ -97,7 +97,7 @@ def test_export_writes_docx_to_output_folder_in_database_order(client: TestClien
     r = client.post("/api/export", json={"selected_ids": ["DL-005", "DL-002", "DL-009"], "file_name": "Rig 7"})
     assert r.status_code == 200, r.text
     target = tmp_path / "out" / "Rig 7.docx"
-    assert r.json() == {"path": str(target), "file_name": "Rig 7.docx", "count": 3}
+    assert r.json() == {"path": str(target), "file_name": "Rig 7.docx", "count": 3, "warnings": []}
     rows = _rows(target)
     assert rows[0] == ["ID", "Name", "Description", "Category", "Supplier", "Serial number"]
     assert [row[0] for row in rows[1:]] == ["DL-002", "DL-005", "DL-009"]

@@ -274,3 +274,14 @@ export function sortSessions(sessions, key, dir) {
   };
   return [...sessions].sort((a, b) => sign * cmp(a, b) || (a.modified < b.modified ? 1 : a.modified > b.modified ? -1 : 0));
 }
+
+/**
+ * Turn Word table layout warnings into one status-bar sentence.
+ * @param {string[]} warnings Warnings from the server (may be empty).
+ * @returns {string} '' without warnings, else e.g. "Word table: 2 warnings – A … B …".
+ */
+export function layoutWarningText(warnings) {
+  if (!warnings || warnings.length === 0) return '';
+  const count = warnings.length === 1 ? '1 warning' : `${warnings.length} warnings`;
+  return `Word table: ${count} – ${warnings.join(' ')}`;
+}

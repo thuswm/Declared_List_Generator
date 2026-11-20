@@ -3,7 +3,7 @@
 Source of truth for ideas not in the current release plan. The user keeps a private `my_notes.md`; its decisions are copied here.
 
 ## Scheduled
-Nothing scheduled; next release to be planned in `PLAN.md`.
+Release 0.4.0 (approved, see `PLAN.md`): Windows feedback on 0.3.0 plus O1–O4 (preview, lenient matching, start script, export summary).
 
 ## Future ideas
 - **Document review mode:** read a Word file, compare its item table with the database (Excel), highlight rows/cells that do not match.

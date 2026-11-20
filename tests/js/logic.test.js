@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   chooseFilter, currentLabel, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds,
-  filterSessions, sessionLabel, setMany, setUserValue, sortSessions, suggestFileName, withUserValues,
+  filterSessions, layoutWarningText, sessionLabel, setMany, setUserValue, sortSessions, suggestFileName, withUserValues,
 } from '../../src/dlg/static/logic.js';
 
 const row = (id, name, description, category, supplier = '') => (
@@ -193,4 +193,11 @@ test('sortSessions: natural text order, numbers, dates, direction, ties newest f
   // Blank configuration sorts last, as in the column filter lists.
   assert.deepEqual(sortSessions(LIB, 'configuration_name', 'asc').map((s) => s.name), ['Alpha', 'Rig 10', 'rig 2']);
   assert.equal(LIB[0].name, 'Rig 10'); // input not modified
+});
+
+test('layoutWarningText: empty without warnings, counted and joined otherwise', () => {
+  assert.equal(layoutWarningText([]), '');
+  assert.equal(layoutWarningText(undefined), '');
+  assert.equal(layoutWarningText(['A.']), 'Word table: 1 warning – A.');
+  assert.equal(layoutWarningText(['A.', 'B.']), 'Word table: 2 warnings – A. B.');
 });

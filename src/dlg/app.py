@@ -133,7 +133,9 @@ class ItemsResponse(BaseModel):
         items: All selectable items.
         layout: Where the Word table layout comes from (e.g.
             ``items.xlsx › Word layout``); '' for the automatic table.
-        word_columns: Columns of the Word table, in order.
+        word_columns: Columns of the Word table, in order (blank columns
+            marked ``(blank)``).
+        warnings: Word table layout problems that do not stop the export.
     """
 
     source: str
@@ -142,6 +144,7 @@ class ItemsResponse(BaseModel):
     items: list[Item]
     layout: str = ""
     word_columns: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class SessionSummary(BaseModel):
@@ -268,11 +271,13 @@ class ExportResponse(BaseModel):
         path: Full path of the written file.
         file_name: Its file name.
         count: Number of items in the declared list.
+        warnings: Word table layout problems (the document was still written).
     """
 
     path: str
     file_name: str
     count: int
+    warnings: list[str] = Field(default_factory=list)
 
 
 def output_file_name(name: str) -> str:
@@ -386,7 +391,7 @@ def create_app(
                 layout = load_layout(cfg.items_file, cfg.table_layout_sheet, required=False)
             else:
                 layout = load_layout(cfg.table_layout_file, cfg.table_layout_sheet, required=True)
-            return (apply_layout(table, layout) if layout else table), layout
+            return apply_layout(table, layout) if layout else (table, None)
         except ItemSourceError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         except LayoutError as exc:
@@ -419,7 +424,8 @@ def create_app(
         return ItemsResponse(
             source=source().name, id_column=table.id_column, columns=table.columns, items=table.items,
             layout=layout.source if layout else "",
-            word_columns=layout.column_names if layout else table.column_names,
+            word_columns=layout.column_labels if layout else table.column_names,
+            warnings=layout.warnings if layout else [],
         )
 
     @app.get("/api/sessions", response_model=list[SessionSummary])
@@ -567,7 +573,8 @@ def create_app(
             raise HTTPException(status_code=423, detail=str(exc)) from exc
         except DocgenError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
-        return ExportResponse(path=str(target), file_name=name, count=len(items))
+        return ExportResponse(
+            path=str(target), file_name=name, count=len(items), warnings=layout.warnings if layout else [])
 
     @app.post("/api/open", status_code=204, dependencies=[Depends(require_local)])
     def open_document(req: OpenRequest) -> Response:

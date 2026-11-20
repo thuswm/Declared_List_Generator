@@ -108,9 +108,9 @@ def test_missing_sheet(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("rows, merges, fragment", [
-    ([["A", None, "C"]], (), "cell B1 in the mapping row"),
     ([["Volt", "Volt"]], (), "mapped twice"),
     ([["X"], ["*"]], (), "no column name"),
+    ([["-*"]], (), "cannot be an input column"),
     ([["Group", None], ["Volt", "Amp"]], ("A1:A2",), "include the mapping row"),
     ([["Group", None, None], ["Volt", "Amp"]], ("A1:C1",), "outside the table"),
 ])
@@ -139,17 +139,43 @@ def _table() -> ItemTable:
 def test_apply_layout_adds_and_marks_input_columns(tmp_path: Path) -> None:
     """Mapped '*' columns become input columns; missing ones are added; others are kept."""
     path = make_workbook(tmp_path / "db.xlsx", [["ID", "Volt*", "Lot*"]])
-    table = apply_layout(_table(), load_layout(path, "Word layout", required=False))
+    table, layout = apply_layout(_table(), load_layout(path, "Word layout", required=False))
+    assert layout.warnings == []
     assert [(c.name, c.user_input) for c in table.columns] == [
         ("ID", False), ("Name", False), ("Volt", True), ("Lot", True)]
     assert table.items[0].values == {"ID": "P-1", "Name": "Pump", "Volt": "", "Lot": ""}
 
 
-def test_apply_layout_unknown_column_lists_available(tmp_path: Path) -> None:
-    """A mapped column the database lacks (without '*') is an error listing the real columns."""
+def test_apply_layout_unknown_column_becomes_blank_with_warning(tmp_path: Path) -> None:
+    """A mapped column the database lacks (without '*') is a blank Word column plus a warning."""
     path = make_workbook(tmp_path / "db.xlsx", [["ID", "Colour"]])
-    with pytest.raises(LayoutError, match="'Colour' is not in the item database. Available columns: ID, Name, Volt"):
-        apply_layout(_table(), load_layout(path, "Word layout", required=False))
+    table, layout = apply_layout(_table(), load_layout(path, "Word layout", required=False))
+    assert table.column_names == ["ID", "Name", "Volt"]  # not added to the browser table
+    assert layout.column_keys == ["ID", None]
+    assert layout.column_labels == ["ID", "Colour (blank)"]
+    [warning] = layout.warnings
+    assert "'Colour' (cell B1) is not in the item database" in warning
+    assert "Available columns: ID, Name, Volt" in warning
+
+
+def test_empty_mapping_cell_and_dash_give_blank_columns(tmp_path: Path) -> None:
+    """An empty mapping cell inside the table warns; '-' is blank on purpose, also at the edge."""
+    path = make_workbook(tmp_path / "db.xlsx", [["Group", None, None, None], ["-", "Name", None, "Volt"]],
+                         ("A1:D1",))
+    layout = load_layout(path, "Word layout", required=False)
+    assert layout.column_keys == [None, "Name", None, "Volt"]
+    assert layout.column_labels == ["(blank)", "Name", "(blank)", "Volt"]
+    [warning] = layout.warnings
+    assert "Cell C2 in the mapping row is empty" in warning and "'-'" in warning
+    assert [(c.text, c.col_span) for c in layout.cells] == [("Group", 4)]
+
+
+def test_unmapped_database_columns_are_allowed(tmp_path: Path) -> None:
+    """Database columns the layout does not name stay in the browser but not in Word, without warnings."""
+    path = make_workbook(tmp_path / "db.xlsx", [["Volt"]])
+    table, layout = apply_layout(_table(), load_layout(path, "Word layout", required=False))
+    assert table.column_names == ["ID", "Name", "Volt"]
+    assert layout.column_keys == ["Volt"] and layout.warnings == []
 
 
 def test_apply_layout_refuses_id_as_input(tmp_path: Path) -> None:
@@ -244,10 +270,26 @@ def test_api_without_layout_sheet_uses_automatic_table(tmp_path: Path) -> None:
 
 def test_api_layout_error_is_reported(tmp_path: Path) -> None:
     """A broken layout makes the item request fail with a message naming the problem."""
-    c = _client(tmp_path, make_workbook(tmp_path / "db.xlsx", [["Name", "Colour"]]))
+    c = _client(tmp_path, make_workbook(tmp_path / "db.xlsx", [["Name", "Name"]]))
     r = c.get("/api/items")
     assert r.status_code == 500
-    assert "Word table layout" in r.json()["detail"] and "Colour" in r.json()["detail"]
+    assert "Word table layout" in r.json()["detail"] and "mapped twice" in r.json()["detail"]
+
+
+def test_api_blank_columns_warn_and_export_empty(tmp_path: Path) -> None:
+    """Gaps and unknown names are reported as warnings by items and export; their Word cells stay empty."""
+    rows = [["Head", None, None, None, None], ["Name", None, "Colour", "-", "Lot*"]]
+    c = _client(tmp_path, make_workbook(tmp_path / "db.xlsx", rows, ("A1:E1",)))
+    body = c.get("/api/items").json()
+    assert body["word_columns"] == ["Name", "(blank)", "Colour (blank)", "(blank)", "Lot"]
+    assert len(body["warnings"]) == 2
+    assert "Colour" not in [col["name"] for col in body["columns"]]
+    r = c.post("/api/export", json={"selected_ids": ["P-1"], "file_name": "x",
+                                    "user_values": {"P-1": {"Lot": "L1"}}})
+    assert r.status_code == 200, r.text
+    assert r.json()["warnings"] == body["warnings"]
+    table = Document(r.json()["path"]).tables[-1]
+    assert [cell.text for cell in table.rows[-1].cells] == ["Pump", "", "", "", "L1"]
 
 
 def test_api_separate_layout_file_and_settings(tmp_path: Path) -> None:
