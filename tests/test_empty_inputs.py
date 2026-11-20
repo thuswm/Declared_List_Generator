@@ -99,3 +99,16 @@ def test_api_rejects_empty_text(tmp_path: Path) -> None:
     r = c.put("/api/settings", json={"mark_empty_inputs": True, "empty_input_text": "  "})
     assert r.status_code == 400 and "such as TBD" in r.json()["detail"]
     assert c.get("/api/settings").json()["mark_empty_inputs"] is False
+
+
+def test_export_reports_empty_input_cells(tmp_path: Path) -> None:
+    """Export lists empty input cells per Word column (in table order), with the setting off or on."""
+    c = _client(tmp_path, [["Lot*", "ID", "-", "Note*"]])
+    body = {"selected_ids": ["P-1", "P-2"], "file_name": "x", "user_values": {"P-1": {"Note": "ok"}}}
+    r = c.post("/api/export", json=body).json()
+    assert r["empty_inputs"] == {"Lot": 2, "Note": 1} and r["empty_input_text"] == ""
+    assert list(r["empty_inputs"]) == ["Lot", "Note"]
+    c.put("/api/settings", json={"mark_empty_inputs": True})
+    r = c.post("/api/export", json={**body, "overwrite": True,
+                                    "user_values": {"P-1": {"Note": "ok", "Lot": "L"}, "P-2": {"Lot": "L"}}}).json()
+    assert r["empty_inputs"] == {"Note": 1} and r["empty_input_text"] == "TBD"

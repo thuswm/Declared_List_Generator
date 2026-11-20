@@ -215,6 +215,9 @@ With Settings → *Empty input cells* → **Write** ticked, every cell of an inp
 (`*`) column that was left empty is written as the given text (default `TBD`),
 so missing input stands out in the document. Empty database values and blank
 layout columns stay empty. The values typed in the tool are not changed.
+After every export the status bar lists the empty input cells per column, e.g.
+"Empty input cells: Serial number 3 (written as TBD)." (or "left empty" with
+the setting off), so missing input is noticed before the document goes out.
 
 `{{CONFIGURATION_NAME}}` anywhere in the template (body text, tables, headers
 and footers) is replaced by the configuration name entered in the tool, e.g.

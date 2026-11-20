@@ -285,3 +285,16 @@ export function layoutWarningText(warnings) {
   const count = warnings.length === 1 ? '1 warning' : `${warnings.length} warnings`;
   return `Word table: ${count} – ${warnings.join(' ')}`;
 }
+
+/**
+ * Describe the empty input cells of an export in one sentence.
+ * @param {Object<string,number>} emptyInputs Empty cells per input column (only columns with some).
+ * @param {string} text Text written into them; '' when they were left empty.
+ * @returns {string} '' when nothing is empty, else e.g. "Empty input cells: Lot 2, Note 1 (written as TBD)."
+ */
+export function emptyInputsText(emptyInputs, text) {
+  const parts = Object.entries(emptyInputs || {}).map(([column, n]) => `${column} ${n}`);
+  if (parts.length === 0) return '';
+  const how = text ? `written as ${text}` : 'left empty';
+  return `Empty input cells: ${parts.join(', ')} (${how}).`;
+}

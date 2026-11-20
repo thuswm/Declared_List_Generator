@@ -3,6 +3,10 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-20 – Export summary of empty input cells (0.4.0 step 5)
+- `ExportResponse.empty_inputs` (only columns with ≥ 1 empty cell, in **Word table order**) and `empty_input_text` (`''` when the TBD setting is off). Counted **always**, not only with TBD on: the point is to notice missing input before the document goes out.
+- GUI: `emptyInputsText()` in `logic.js`; the export status becomes `warn` when there are empty input cells or layout warnings.
+
 ## 2026-11-20 – "TBD" for empty input cells (0.4.0 step 4)
 - Applied **on the items at export** (`docgen.fill_empty_inputs`, called from `/api/export`), not in the table builder: one place for the layout and automatic tables, blank layout columns have no key so are never filled, and the per-column counts it returns feed step 5.
 - Only input columns that are **in the Word table** are filled (layout: `column_keys`; automatic: all shown columns). Space-only values count as empty. Typed values in the browser/session are never changed.

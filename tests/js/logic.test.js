@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  chooseFilter, currentLabel, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds,
+  chooseFilter, currentLabel, emptyInputsText, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds,
   filterSessions, layoutWarningText, sessionLabel, setMany, setUserValue, sortSessions, suggestFileName, withUserValues,
 } from '../../src/dlg/static/logic.js';
 
@@ -200,4 +200,11 @@ test('layoutWarningText: empty without warnings, counted and joined otherwise', 
   assert.equal(layoutWarningText(undefined), '');
   assert.equal(layoutWarningText(['A.']), 'Word table: 1 warning – A.');
   assert.equal(layoutWarningText(['A.', 'B.']), 'Word table: 2 warnings – A. B.');
+});
+
+test('emptyInputsText: nothing empty, left empty, written as text', () => {
+  assert.equal(emptyInputsText({}, 'TBD'), '');
+  assert.equal(emptyInputsText(undefined, ''), '');
+  assert.equal(emptyInputsText({ Lot: 2, Note: 1 }, ''), 'Empty input cells: Lot 2, Note 1 (left empty).');
+  assert.equal(emptyInputsText({ Lot: 2 }, 'TBD'), 'Empty input cells: Lot 2 (written as TBD).');
 });

@@ -280,12 +280,18 @@ class ExportResponse(BaseModel):
         file_name: Its file name.
         count: Number of items in the declared list.
         warnings: Word table layout problems (the document was still written).
+        empty_inputs: Number of empty cells per input column of the Word
+            table, only columns with at least one, in table order.
+        empty_input_text: Text written into those cells; '' when they were
+            left empty (setting off).
     """
 
     path: str
     file_name: str
     count: int
     warnings: list[str] = Field(default_factory=list)
+    empty_inputs: dict[str, int] = Field(default_factory=dict)
+    empty_input_text: str = ""
 
 
 def output_file_name(name: str) -> str:
@@ -572,10 +578,13 @@ def create_app(
         if target.exists() and not req.overwrite:
             raise HTTPException(status_code=409, detail=f"{name} already exists in {cfg.output_dir}.")
         items = [i for i in table.with_user_values(req.user_values) if i.id in wanted]
+        # Counted even with the setting off, so the user hears about missing input either way.
+        word_keys = layout.column_keys if layout else table.column_names
+        input_names = {c.name for c in table.columns if c.user_input}
+        inputs = [k for k in word_keys if k is not None and k in input_names]
+        filled, counts = fill_empty_inputs(items, inputs, cfg.empty_input_text)
         if cfg.mark_empty_inputs:
-            in_word = set(layout.column_keys if layout else table.column_names)
-            inputs = [c.name for c in table.columns if c.user_input and c.name in in_word]
-            items, _ = fill_empty_inputs(items, inputs, cfg.empty_input_text)
+            items = filled
         try:
             generate_declared_list(
                 cfg.template_file, table.column_names, items, target, req.configuration_name.strip(), layout,
@@ -586,7 +595,10 @@ def create_app(
         except DocgenError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return ExportResponse(
-            path=str(target), file_name=name, count=len(items), warnings=layout.warnings if layout else [])
+            path=str(target), file_name=name, count=len(items), warnings=layout.warnings if layout else [],
+            empty_inputs={k: n for k, n in counts.items() if n},
+            empty_input_text=cfg.empty_input_text if cfg.mark_empty_inputs else "",
+        )
 
     @app.post("/api/open", status_code=204, dependencies=[Depends(require_local)])
     def open_document(req: OpenRequest) -> Response:

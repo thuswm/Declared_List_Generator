@@ -5,8 +5,8 @@
  * with textContent, never innerHTML, so spreadsheet content cannot inject markup.
  */
 import {
-  chooseFilter, currentLabel, errorMessage, filterItems, filterValues, headerState, matchesQuery, partitionIds,
-  filterSessions, layoutWarningText, sessionLabel, setMany, setUserValue, sortSessions, suggestFileName, withUserValues,
+  chooseFilter, currentLabel, emptyInputsText, errorMessage, filterItems, filterValues, headerState, matchesQuery,
+  partitionIds, filterSessions, layoutWarningText, sessionLabel, setMany, setUserValue, sortSessions, suggestFileName, withUserValues,
 } from './logic.js';
 
 /** Label shown for empty cells in a filter list. */
@@ -800,9 +800,10 @@ async function exportDocument() {
       }
       result = await sendJson('/api/export', 'POST', { ...body, overwrite: true });
     }
-    const warning = layoutWarningText(result.warnings);
-    showStatus(`Saved ${result.count} item${result.count === 1 ? '' : 's'} to ${result.path}`
-      + (warning ? `. ${warning}` : ''), warning ? 'warn' : 'ok');
+    const notes = [emptyInputsText(result.empty_inputs, result.empty_input_text),
+      layoutWarningText(result.warnings)].filter(Boolean);
+    showStatus([`Saved ${result.count} item${result.count === 1 ? '' : 's'} to ${result.path}.`, ...notes].join(' '),
+      notes.length ? 'warn' : 'ok');
     state.exportedFile = result.file_name;
     el.openDoc.title = `Open ${result.file_name} in Word`;
     el.openFolder.title = `Show ${result.file_name} in its folder`;
