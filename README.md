@@ -248,6 +248,10 @@ another `.xlsx` and sheet. Example: `data/layout_example.xlsx` (written by
   **warning** (status bar, ⚠ on the "Word table" label; hover it for details).
   The export still works. Use `-` to silence the warning, or `*` to type the
   column in the tool.
+- Mapping names **ignore case and extra spaces** (`part  no` finds `Part No`),
+  with a warning so the layout can be corrected. An exact name always wins; a
+  name that loosely matches two database columns, or two mapping names that
+  land on the same column, are errors.
 - **Column widths** in the layout sheet set the relative widths in Word,
   scaled to the page width.
 - No layout sheet in the database workbook → the automatic table. A separately

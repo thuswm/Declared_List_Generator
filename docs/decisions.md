@@ -3,6 +3,11 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-20 – Lenient column matching (0.4.0 step 3)
+- In `apply_layout`, via `_match_column`: exact name first, else `" ".join(name.split()).casefold()` equality. A loose match gives a warning and the layout column is **renamed to the database name**, so item keys, session `user_values` and input columns all use the database spelling.
+- Loose match on two database columns → `LayoutError` (no guessing). Two mapping cells resolving to the same column (e.g. `Volt` and `volt`, or `Lot*` and `LOT*`) → `LayoutError` "both map the column" (the exact duplicate check in `parse_layout` cannot see these).
+- Header text in a one-row header keeps the user's spelling from the sheet.
+
 ## 2026-11-20 – Blank Word columns and layout warnings (0.4.0 steps 1–2)
 - `TableLayout.columns` is now a list of `LayoutColumn` (name, user_input, **blank**, ref = Excel cell) instead of `models.Column`: blank columns are Word-only and must never reach the browser table or the session. `column_keys` gives `None` for blank columns; docgen writes `""` for them (no reliance on a missing key in `Item.values`).
 - `TableLayout.warnings`: `parse_layout` adds one per empty mapping cell; `apply_layout` adds one per unknown non-`*` name and now returns **`(table, layout)`** (layout copied via `dataclasses.replace`, inputs untouched). Unknown names keep their text (label `Colour (blank)`, and the header text in a one-row header).

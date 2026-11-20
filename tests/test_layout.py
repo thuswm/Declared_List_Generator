@@ -325,3 +325,42 @@ def test_api_invalid_layout_settings(tmp_path: Path, body: dict, fragment: str) 
     r = c.put("/api/settings", json=body)
     assert r.status_code == 400 and fragment in r.json()["detail"]
     assert c.get("/api/settings").json() == before
+
+
+def _table_with(*names: str) -> ItemTable:
+    """An item table with one item and the given columns (first is the ID)."""
+    return ItemTable(
+        id_column=names[0],
+        columns=[Column(name=n) for n in names],
+        items=[Item(id="P-1", values={n: f"v-{n}" for n in names})],
+    )
+
+
+def test_lenient_match_ignores_case_and_spaces_with_warning(tmp_path: Path) -> None:
+    """'part  no ' finds 'Part No' (warned); exact names give no warning."""
+    path = make_workbook(tmp_path / "db.xlsx", [["ID", " part  no ", "SERIAL*"]])
+    table, layout = apply_layout(_table_with("ID", "Part No", "Serial"),
+                                 load_layout(path, "Word layout", required=False))
+    assert layout.column_keys == ["ID", "Part No", "Serial"]
+    assert [(c.name, c.user_input) for c in table.columns] == [("ID", False), ("Part No", False), ("Serial", True)]
+    assert len(layout.warnings) == 2
+    assert "'part  no' (cell B1) matched the database column 'Part No'" in layout.warnings[0]
+    assert "'SERIAL'" in layout.warnings[1]
+
+
+def test_lenient_match_prefers_exact_and_refuses_ambiguity(tmp_path: Path) -> None:
+    """An exact name wins over loose ones; a loose name matching two columns is an error."""
+    exact = make_workbook(tmp_path / "a.xlsx", [["ID", "Volt"]])
+    _, layout = apply_layout(_table_with("ID", "Volt", "VOLT"), load_layout(exact, "Word layout", required=False))
+    assert layout.column_keys == ["ID", "Volt"] and layout.warnings == []
+    loose = make_workbook(tmp_path / "b.xlsx", [["ID", "volt"]])
+    with pytest.raises(LayoutError, match="matches several database columns"):
+        apply_layout(_table_with("ID", "Volt", "VOLT"), load_layout(loose, "Word layout", required=False))
+
+
+@pytest.mark.parametrize("mapping", [["ID", "Volt", "volt"], ["ID", "Lot*", "LOT*"]])
+def test_two_names_on_one_column_is_an_error(tmp_path: Path, mapping) -> None:
+    """Names that differ only in case cannot map the same column twice (database or added input column)."""
+    path = make_workbook(tmp_path / "db.xlsx", [mapping])
+    with pytest.raises(LayoutError, match="both map the column"):
+        apply_layout(_table_with("ID", "Volt"), load_layout(path, "Word layout", required=False))

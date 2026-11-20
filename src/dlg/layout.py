@@ -15,6 +15,8 @@ database workbook):
   cells in Word. With no rows above, the mapping names form a one-row header.
 * A mapping name ending in ``*`` is a user-input column. It does not have to
   exist in the database: the tool then adds it as an input column.
+* Names match database columns exactly, else ignoring case and repeated,
+  leading or trailing spaces (with a warning).
 * Blank columns are Word-only: exported empty and not shown in the browser.
 * The Excel column widths set the relative Word column widths.
 """
@@ -357,6 +359,8 @@ def apply_layout(table: ItemTable, layout: TableLayout) -> tuple[ItemTable, Tabl
       input column.
     * Any other mapped column the database lacks becomes a blank Word column,
       with a warning.
+    * Names match exactly first, else ignoring case and repeated, leading or
+      trailing spaces (with a warning naming the database column used).
 
     Args:
         table: Columns and items from the data sheet.
@@ -367,17 +371,34 @@ def apply_layout(table: ItemTable, layout: TableLayout) -> tuple[ItemTable, Tabl
         their warnings added (the inputs are not modified).
 
     Raises:
-        LayoutError: If the ID column is marked as user input.
+        LayoutError: If the ID column is marked as user input, a name matches
+            several database columns loosely, or two mapping names end up on
+            the same column.
     """
     columns = [c.model_copy() for c in table.columns]
     by_name = {c.name: c for c in columns}
     word_columns: list[LayoutColumn] = []
     warnings = list(layout.warnings)
+    used: dict[str, str] = {}  # database column -> mapping cell that took it
     for mapped in layout.columns:
-        word_columns.append(mapped)
         if mapped.blank:
+            word_columns.append(mapped)
             continue
-        existing = by_name.get(mapped.name)
+        existing = _match_column(mapped, by_name, layout.source)
+        if existing is not None and existing.name != mapped.name:
+            warnings.append(
+                f"Column '{mapped.name}' (cell {mapped.ref}) matched the database column '{existing.name}' "
+                "(case or spaces differ)."
+            )
+            mapped = replace(mapped, name=existing.name)
+        if existing is not None:
+            if existing.name in used:
+                raise LayoutError(
+                    f"Layout sheet {layout.source}: cells {used[existing.name]} and {mapped.ref} "
+                    f"both map the column '{existing.name}'."
+                )
+            used[existing.name] = mapped.ref
+        word_columns.append(mapped)
         if existing is None:
             if not mapped.user_input:
                 available = ", ".join(c.name for c in table.columns) or "(none)"
@@ -391,6 +412,7 @@ def apply_layout(table: ItemTable, layout: TableLayout) -> tuple[ItemTable, Tabl
             new = Column(name=mapped.name, user_input=True)
             columns.append(new)
             by_name[new.name] = new
+            used[new.name] = mapped.ref
         elif mapped.user_input and not existing.user_input:
             if existing.name == table.id_column:
                 raise LayoutError(
@@ -406,3 +428,45 @@ def apply_layout(table: ItemTable, layout: TableLayout) -> tuple[ItemTable, Tabl
         ItemTable(id_column=table.id_column, columns=columns, items=items),
         replace(layout, columns=word_columns, warnings=warnings),
     )
+
+
+def _normalised(name: str) -> str:
+    """Fold a column name for lenient matching (case, repeated and outer spaces ignored).
+
+    Args:
+        name: Column name.
+
+    Returns:
+        The folded name.
+    """
+    return " ".join(name.split()).casefold()
+
+
+def _match_column(mapped: LayoutColumn, by_name: dict[str, Column], source: str) -> Column | None:
+    """Find the database column a mapping name refers to.
+
+    Hand-typed layout names often differ from database headers only in case
+    or spacing, so a loose match is accepted when it is unambiguous.
+
+    Args:
+        mapped: The mapping-row column.
+        by_name: Known columns by exact name.
+        source: Layout origin, for messages.
+
+    Returns:
+        The exact match, else the single loose match, else None.
+
+    Raises:
+        LayoutError: If several columns match loosely.
+    """
+    if mapped.name in by_name:
+        return by_name[mapped.name]
+    wanted = _normalised(mapped.name)
+    loose = [c for name, c in by_name.items() if _normalised(name) == wanted]
+    if len(loose) > 1:
+        names = ", ".join(f"'{c.name}'" for c in loose)
+        raise LayoutError(
+            f"Layout sheet {source}: column '{mapped.name}' (cell {mapped.ref}) matches several "
+            f"database columns ({names}); write the name exactly as in the database."
+        )
+    return loose[0] if loose else None
