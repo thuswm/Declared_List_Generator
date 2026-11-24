@@ -3,6 +3,9 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-24 – Release status
+- At the user's request `v0.4.0` was promoted to a full (Latest) GitHub release when `v0.5.0` was published as a pre-release, without a separate Windows check of 0.4.0 (its open checks stay in the backlog).
+
 ## 2026-11-24 – Column widths explained (0.5.0 step 5)
 - User asked whether widths scale to the Word page and follow the Excel proportions: yes, unchanged since 0.3.0 (`_build_table`: `width * w / sum(w)`, width = page width − margins of the placeholder's section). Only documented in README and shown as "NN% of width" per column in *Check Word table…* (`widthPercent` in `logic.js`, "<1%" for slivers).
 
