@@ -20,6 +20,9 @@ database workbook):
   leading or trailing spaces (with a warning).
 * Blank columns are Word-only: exported empty and not shown in the browser.
 * The Excel column widths set the relative Word column widths.
+* Header text rotated 90° in Excel (Format Cells → Alignment → Orientation) is
+  rotated in Word too: turned down (−90°, reads top to bottom) or up (+90°).
+  Its row gets the Excel row height if one is stored, else an estimated one.
 """
 
 from __future__ import annotations
@@ -47,6 +50,10 @@ LEGACY_BLANK_MARKERS = frozenset({"-", "\u2013", "\u2014", "\u2212", "\u2010", "
 #: Excel's default column width (characters) for columns without a set width.
 EXCEL_DEFAULT_WIDTH = 8.43
 
+#: Header text directions, by Excel ``textRotation``. Excel stores +90° (text
+#: reads bottom to top) as 90 and −90° (top to bottom) as 180.
+ROTATIONS = {90: "up", 180: "down"}
+
 
 class LayoutError(Exception):
     """Raised when the layout sheet cannot be used."""
@@ -62,6 +69,8 @@ class HeaderCell:
         text: Cell text (may contain line breaks).
         row_span: Number of header rows the cell covers.
         col_span: Number of columns the cell covers.
+        rotation: '' for horizontal text, ``down`` (reads top to bottom) or
+            ``up`` (bottom to top).
     """
 
     row: int
@@ -69,6 +78,7 @@ class HeaderCell:
     text: str
     row_span: int = 1
     col_span: int = 1
+    rotation: str = ""
 
     @property
     def merged(self) -> bool:
@@ -112,7 +122,9 @@ class TableLayout:
         widths: Relative column widths (Excel character units), one per column.
         source: Human-readable origin, e.g. ``items.xlsx › Word layout``.
         warnings: Problems that do not stop the export (blank columns that
-            were probably not meant to be blank).
+            were probably not meant to be blank, unsupported text angles).
+        row_heights: Excel row height in points per header row, None where
+            the sheet stores none (empty list: none known).
     """
 
     columns: list[LayoutColumn]
@@ -121,6 +133,7 @@ class TableLayout:
     widths: list[float]
     source: str = ""
     warnings: list[str] = field(default_factory=list)
+    row_heights: list[float | None] = field(default_factory=list)
 
     @property
     def column_names(self) -> list[str]:
@@ -267,17 +280,69 @@ def parse_layout(ws: Worksheet, source: str) -> TableLayout:
     in_table = [r for r, c in text if r < map_row and first_col <= c <= last_col]
     first_row = min(in_table, default=map_row)
     cells = _header_cells(ws, source, text, first_row, map_row, first_col, last_col)
+    header_first = first_row
     if not cells:
         # No header rows above the mapping row: the column names are the header.
         cells = [HeaderCell(0, i, col.name) for i, col in enumerate(columns)]
+        header_first = map_row
+    warnings.extend(_read_rotations(ws, cells, header_first, first_col))
+    header_rows = max(map_row - first_row, 1)
     return TableLayout(
         columns=columns,
-        header_rows=max(map_row - first_row, 1),
+        header_rows=header_rows,
         cells=cells,
         widths=_column_widths(ws, first_col, last_col),
         source=source,
         warnings=warnings,
+        row_heights=[_row_height(ws, header_first + r) for r in range(header_rows)],
     )
+
+
+def _read_rotations(ws: Worksheet, cells: list[HeaderCell], first_row: int, first_col: int) -> list[str]:
+    """Copy the Excel text rotation of each header cell (its top-left cell) into ``rotation``.
+
+    Args:
+        ws: The layout sheet (full mode, so cell formats are loaded).
+        cells: Header cells, updated in place.
+        first_row: Sheet row (1-based) of header row 0.
+        first_col: Sheet column (1-based) of table column 0.
+
+    Returns:
+        Warnings for angles Word cannot show (shown horizontal instead).
+    """
+    warnings: list[str] = []
+    for cell in cells:
+        r, c = first_row + cell.row, first_col + cell.col
+        angle = int(ws.cell(r, c).alignment.textRotation or 0)
+        if not angle:
+            continue
+        if angle in ROTATIONS:
+            cell.rotation = ROTATIONS[angle]
+        elif cell.text:
+            # Word table cells only turn text by a quarter turn; 255 is Excel's stacked "vertical text".
+            what = "stacked vertical text" if angle == 255 else f"text at {angle if angle <= 90 else 90 - angle}°"
+            warnings.append(
+                f"Cell {get_column_letter(c)}{r} has {what}; Word shows it horizontal. "
+                "Use +90° or −90° (Format Cells → Alignment → Orientation) to rotate it."
+            )
+    return warnings
+
+
+def _row_height(ws: Worksheet, row: int) -> float | None:
+    """Return the row height stored in the sheet, in points.
+
+    Excel stores a height for rows set by hand and for rows it grew itself
+    (e.g. to fit rotated text); other rows have none.
+
+    Args:
+        ws: The layout sheet.
+        row: Sheet row (1-based).
+
+    Returns:
+        The height, or None if the sheet stores none.
+    """
+    dim = ws.row_dimensions.get(row)
+    return float(dim.height) if dim is not None and dim.height else None
 
 
 def _header_cells(

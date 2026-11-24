@@ -566,7 +566,14 @@ function renderLayoutCheck(layout) {
     const tr = document.createElement('tr');
     for (const cell of cells) {
       const th = document.createElement('th');
-      th.textContent = cell.text;
+      if (cell.rotation) {
+        // A span carries the rotation: writing-mode on a table cell itself is unevenly supported.
+        const text = make('span', cell.text, `rotated rotated-${cell.rotation}`);
+        text.title = cell.rotation === 'down' ? 'Rotated: reads top to bottom' : 'Rotated: reads bottom to top';
+        th.append(text);
+      } else {
+        th.textContent = cell.text;
+      }
       if (cell.row_span > 1) th.rowSpan = cell.row_span;
       if (cell.col_span > 1) th.colSpan = cell.col_span;
       tr.append(th);

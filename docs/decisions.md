@@ -3,6 +3,12 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-24 – Rotated header text (0.5.0 step 4)
+- User's choice: rotation comes from the **Excel cell format** (`alignment.textRotation`), not a marker in the text. Excel stores +90° as 90 and −90° as 180 → Word `w:textDirection` `btLr` / `tbRl`. Other angles and 255 (stacked) → warning, horizontal. Merged cells use the top-left cell; with no header rows, the mapping cells' own format applies.
+- **Row height** (`trHeight`, rule *at least*) only for header rows holding rotated text: the Excel row height if the sheet stores one (`row_dimensions[r].height`; Excel also stores heights it grew itself), else `longest line × font size × 0.6 + 8 pt` (font: table font size setting, else the template's Normal style, else 11 pt). A rotated cell merged down shares its estimate between the rows. No font metrics in the stdlib → deliberately generous estimate.
+- Gotcha fixed on the way: `_shade` appended `w:shd` after `w:vAlign` (schema order violation Word tolerated). New `_add_tc_pr` inserts `tcPr` children in CT_TcPr order; used for `shd` and `textDirection`.
+- Check dialog: rotation via a `writing-mode: vertical-rl` span (+ `rotate(180deg)` for up); writing-mode on the `th` itself renders unevenly across browsers.
+
 ## 2026-11-24 – Open buttons in Settings (0.5.0 step 3)
 - `POST /api/open-setting {setting}` with `setting` limited to `items_file`, `template_file`, `table_layout_file`, `output_dir` (Literal → 422 otherwise); opens only the **saved** path, never a path from the browser (same safety rule as `/api/open`). The GUI refuses with "Save settings first" when the field differs from the saved value.
 - Table layout without a layout file opens the item database (the layout sheet lives there).

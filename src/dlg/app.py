@@ -191,6 +191,7 @@ class HeaderCellInfo(BaseModel):
         text: Cell text (may contain line breaks).
         row_span: Header rows covered.
         col_span: Columns covered.
+        rotation: '' (horizontal), ``down`` or ``up``.
     """
 
     row: int
@@ -198,6 +199,7 @@ class HeaderCellInfo(BaseModel):
     text: str
     row_span: int = 1
     col_span: int = 1
+    rotation: str = ""
 
 
 class LayoutResponse(BaseModel):
@@ -539,7 +541,8 @@ def create_app(
         total = sum(weights) or 1.0
         return LayoutResponse(
             source=source, header_rows=header_rows, columns=columns,
-            cells=[HeaderCellInfo(row=c.row, col=c.col, text=c.text, row_span=c.row_span, col_span=c.col_span)
+            cells=[HeaderCellInfo(row=c.row, col=c.col, text=c.text, row_span=c.row_span, col_span=c.col_span,
+                                  rotation=c.rotation)
                    for c in cells],
             widths=[round(w / total, 4) for w in weights], warnings=warnings,
         )

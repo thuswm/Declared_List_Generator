@@ -6,6 +6,7 @@ Format: one entry per release, newest first. Versioning: [SemVer](https://semver
 - **`\blank` marks a blank Word column** in the layout sheet's mapping row (any case, as often as needed). `-` still works, as do dashes such as `–` that autocorrect puts in its place (likely cause of "`-` does not work" in 0.4.0).
 - **ID column pick list:** Settings → *ID column* lists the headers of the chosen item database (also before saving); typing stays possible if the file cannot be read.
 - **Open buttons in Settings** for the item database, Word template, table layout and output folder: open the saved file in Excel/Word (folder in the file manager) while adjusting the layout or template.
+- **Rotated header text:** header cells turned ±90° in the layout sheet (Format Cells → Orientation) are rotated in Word, with a header row height from Excel or estimated to fit; shown rotated in *Check Word table…*.
 
 ## [0.4.0] – 2026-11-20
 Changes from the Windows test of 0.3.0, plus four smaller additions. Not yet tried on Windows.

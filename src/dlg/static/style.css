@@ -180,6 +180,9 @@ td.input-cell { padding: .2rem .4rem; }
 .layout-table td { font-size: .85em; color: var(--muted); font-style: italic; text-align: center; }
 .layout-input, .layout-table td.layout-input { font-weight: 600; font-style: normal; color: var(--text); }
 .layout-blank, .layout-table td.layout-blank { color: var(--danger); }
+/* Rotated header text (Excel ±90°): vertical-rl reads top to bottom; turning it half round reads bottom to top. */
+.layout-table .rotated { display: inline-block; writing-mode: vertical-rl; white-space: pre-line; text-align: left; }
+.layout-table .rotated-up { transform: rotate(180deg); }
 .layout-warnings { margin: .5rem 0; padding-left: 1.2rem; }
 .layout-warnings li { margin: .2rem 0; }
 .layout-warnings li::marker { content: "⚠  "; }

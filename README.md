@@ -282,6 +282,12 @@ another `.xlsx` and sheet. Example: `data/layout_example.xlsx` (written by
   land on the same column, are errors.
 - **Column widths** in the layout sheet set the relative widths in Word,
   scaled to the page width.
+- **Rotated header text:** turn a header cell's text by −90° (reads top to
+  bottom) or +90° (bottom to top) in Excel (Format Cells → Alignment →
+  Orientation); Word shows it the same way. The row's height in Word is the
+  Excel row height if the sheet stores one (set it by dragging the row
+  border), otherwise an estimate from the longest line of text (on the
+  generous side). Other angles give a warning and stay horizontal.
 - **Check Word table…** (next to *Export*) shows the header as it will be
   exported: merged cells, column widths in proportion, and a last row naming
   each column's source (input `*` columns in bold, blank columns in red), plus

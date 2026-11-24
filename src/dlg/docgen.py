@@ -17,7 +17,7 @@ from pathlib import Path
 
 from docx import Document
 from docx.document import Document as DocumentType
-from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -52,6 +52,27 @@ class OutputLockedError(DocgenError):
 #: column cannot squeeze the others to nothing and tiny columns stay readable.
 MIN_WEIGHT = 4.0
 MAX_WEIGHT = 40.0
+
+#: Word text direction per header rotation: ``tbRl`` reads top to bottom
+#: (Excel −90°), ``btLr`` bottom to top (Excel +90°).
+TEXT_DIRECTIONS = {"down": "tbRl", "up": "btLr"}
+
+#: Font size assumed when the template's Normal style sets none (Word's default).
+DEFAULT_FONT_SIZE = 11.0
+
+#: Average width of a bold character as a fraction of the font size (generous for
+#: Calibri/Arial, so the estimate errs on the tall side).
+BOLD_CHAR_WIDTH = 0.6
+
+#: Extra row height (points) around rotated text, so it does not touch the borders.
+ROTATED_PADDING_PT = 8.0
+
+#: Schema order of the ``w:tcPr`` children (ECMA-376 CT_TcPr).
+_TC_PR_ORDER = [qn(f"w:{name}") for name in (
+    "cnfStyle", "tcW", "gridSpan", "hMerge", "vMerge", "tcBorders", "shd", "noWrap", "tcMar",
+    "textDirection", "tcFitText", "vAlign", "hideMark", "headers", "cellIns", "cellDel", "cellMerge",
+    "tcPrChange",
+)]
 
 
 def column_weights(columns: Sequence[str], items: Sequence[Item]) -> list[float]:
@@ -202,6 +223,8 @@ def build_document(
     table = _build_table(doc, items, keys, _text_width(section), layout)
     if font_size:
         _set_font_size(table, font_size)
+    if layout is not None:
+        _set_rotated_row_heights(table, layout, font_size or _template_font_size(doc))
 
     # Insert *before* the placeholder: if it carries the section break, inserting
     # after it would push the table into the next section (wrong orientation).
@@ -443,7 +466,7 @@ def _build_table(
         cell = table.cell(spec.row, spec.col)
         if spec.merged:
             cell = cell.merge(table.cell(spec.row + spec.row_span - 1, spec.col + spec.col_span - 1))
-        _fill_header_cell(cell, spec.text, centred=spec.merged)
+        _fill_header_cell(cell, spec.text, centred=spec.merged, rotation=spec.rotation)
     for row in table.rows[:header_rows]:
         _mark_header_row(row)
     _fix_layout(table, sum(widths))
@@ -491,7 +514,7 @@ def _set_font_size(table: Table, size: float) -> None:
                 el.set(qn("w:val"), half_points)
 
 
-def _fill_header_cell(cell: _Cell, text: str, centred: bool) -> None:
+def _fill_header_cell(cell: _Cell, text: str, centred: bool, rotation: str = "") -> None:
     """Write a header cell: bold text on grey, vertically centred.
 
     Args:
@@ -499,6 +522,8 @@ def _fill_header_cell(cell: _Cell, text: str, centred: bool) -> None:
         text: Its text; line breaks from Excel (Alt+Enter) are kept.
         centred: Centre the text horizontally (used for merged cells, which
             usually title the columns beneath them).
+        rotation: '' for horizontal text, ``down`` or ``up`` for text turned
+            a quarter (see :data:`TEXT_DIRECTIONS`).
     """
     cell.text = _clean(text)  # python-docx turns "\n" into a line break
     for paragraph in cell.paragraphs:
@@ -508,6 +533,94 @@ def _fill_header_cell(cell: _Cell, text: str, centred: bool) -> None:
             run.bold = True
     cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
     _shade(cell, "D9D9D9")
+    if rotation:
+        direction = OxmlElement("w:textDirection")
+        direction.set(qn("w:val"), TEXT_DIRECTIONS[rotation])
+        _add_tc_pr(cell, direction)
+
+
+def _add_tc_pr(cell: _Cell, element: BaseOxmlElement) -> None:
+    """Add a cell property in the order the OOXML schema requires.
+
+    Word may report a file as damaged when ``w:tcPr`` children are out of
+    order, and python-docx only orders the few properties it knows.
+
+    Args:
+        cell: Table cell.
+        element: New ``w:tcPr`` child (e.g. ``w:shd``, ``w:textDirection``).
+    """
+    tc_pr = cell._tc.get_or_add_tcPr()
+    rank = _TC_PR_ORDER.index(element.tag)
+    later = next((child for child in tc_pr if child.tag in _TC_PR_ORDER[rank + 1:]), None)
+    if later is None:
+        tc_pr.append(element)
+    else:
+        later.addprevious(element)
+
+
+def _template_font_size(doc: DocumentType) -> float:
+    """Return the font size of the template's Normal style, in points.
+
+    Args:
+        doc: The template document.
+
+    Returns:
+        The size, or Word's default of 11 pt if the template does not say.
+    """
+    try:
+        size = doc.styles["Normal"].font.size
+    except KeyError:
+        size = None
+    return size.pt if size is not None else DEFAULT_FONT_SIZE
+
+
+def rotated_text_height(text: str, font_size: float) -> float:
+    """Estimate the row height (points) that rotated header text needs on one line.
+
+    Rotated text runs along the row height, so the height must hold the
+    longest line (Alt+Enter breaks give several lines side by side). Without
+    a measuring font engine, an average bold character width is assumed,
+    on the generous side: too tall looks better than words broken up.
+
+    Args:
+        text: Cell text.
+        font_size: Font size in points.
+
+    Returns:
+        Height in points, including cell padding.
+    """
+    longest = max((len(line) for line in text.splitlines()), default=0)
+    return longest * font_size * BOLD_CHAR_WIDTH + ROTATED_PADDING_PT
+
+
+def _set_rotated_row_heights(table: Table, layout: TableLayout, font_size: float) -> None:
+    """Give header rows with rotated text a minimum height so the text fits.
+
+    The Excel row height is used where the layout sheet stores one (the
+    user's own choice, or what Excel grew the row to); otherwise the height
+    is estimated. A rotated cell merged down several rows shares its
+    estimate between them. Rows without rotated text are left alone.
+
+    Args:
+        table: The finished items table.
+        layout: Its layout (header cells with ``rotation``).
+        font_size: Font size of the table text in points.
+    """
+    need = [0.0] * layout.header_rows
+    for cell in layout.cells:
+        if not cell.rotation or not cell.text:
+            continue
+        share = rotated_text_height(cell.text, font_size) / cell.row_span
+        for r in range(cell.row, min(cell.row + cell.row_span, layout.header_rows)):
+            need[r] = max(need[r], share)
+    excel = layout.row_heights + [None] * (layout.header_rows - len(layout.row_heights))
+    for r, height in enumerate(need):
+        if not height:
+            continue
+        row = table.rows[r]
+        row.height = Pt(excel[r] or height)
+        # "At least": Word may still grow the row, e.g. for wrapped horizontal text beside it.
+        row.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
 
 
 def _fix_layout(table: Table, total: int) -> None:
@@ -557,7 +670,7 @@ def _shade(cell: _Cell, fill: str) -> None:
     shd.set(qn("w:val"), "clear")
     shd.set(qn("w:color"), "auto")
     shd.set(qn("w:fill"), fill)
-    cell._tc.get_or_add_tcPr().append(shd)
+    _add_tc_pr(cell, shd)
 
 
 def _mark_header_row(row: _Row) -> None:
