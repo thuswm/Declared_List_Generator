@@ -7,6 +7,7 @@ the per-user :class:`dlg.config.Config` (see ``dlg/config.py``).
 from __future__ import annotations
 
 import re
+from typing import Literal
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -54,6 +55,16 @@ def require_local(request: Request) -> None:
     host = request.client.host if request.client else ""
     if host not in LOCAL_CLIENTS:
         raise HTTPException(status_code=403, detail="Only available on the computer running the tool.")
+
+
+class HeadersResponse(BaseModel):
+    """Headers of an item database that can be chosen as the ID column.
+
+    Attributes:
+        headers: Header texts in sheet order (no ``#`` or ``*`` columns).
+    """
+
+    headers: list[str]
 
 
 class SettingsResponse(BaseModel):
@@ -180,6 +191,7 @@ class HeaderCellInfo(BaseModel):
         text: Cell text (may contain line breaks).
         row_span: Header rows covered.
         col_span: Columns covered.
+        rotation: '' (horizontal), ``down`` or ``up``.
     """
 
     row: int
@@ -187,6 +199,7 @@ class HeaderCellInfo(BaseModel):
     text: str
     row_span: int = 1
     col_span: int = 1
+    rotation: str = ""
 
 
 class LayoutResponse(BaseModel):
@@ -277,6 +290,17 @@ class OpenRequest(BaseModel):
 
     file_name: str = Field(min_length=1, max_length=260)
     folder: bool = False
+
+
+class OpenSettingRequest(BaseModel):
+    """Body of ``POST /api/open-setting``.
+
+    Attributes:
+        setting: Which saved setting to open: the item database, the Word
+            template, the table layout workbook or the output folder.
+    """
+
+    setting: Literal["items_file", "template_file", "table_layout_file", "output_dir"]
 
 
 class SaveSessionRequest(BaseModel):
@@ -517,7 +541,8 @@ def create_app(
         total = sum(weights) or 1.0
         return LayoutResponse(
             source=source, header_rows=header_rows, columns=columns,
-            cells=[HeaderCellInfo(row=c.row, col=c.col, text=c.text, row_span=c.row_span, col_span=c.col_span)
+            cells=[HeaderCellInfo(row=c.row, col=c.col, text=c.text, row_span=c.row_span, col_span=c.col_span,
+                                  rotation=c.rotation)
                    for c in cells],
             widths=[round(w / total, 4) for w in weights], warnings=warnings,
         )
@@ -700,6 +725,31 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return Response(status_code=204)
 
+    @app.post("/api/open-setting", status_code=204, dependencies=[Depends(require_local)])
+    def open_setting(req: OpenSettingRequest) -> Response:
+        """Open a file or folder named in the settings in its program (Excel, Word, Explorer).
+
+        Helps while adjusting the layout or template: edit, save, then check
+        or export again (both read the files afresh). Only the *saved* path of
+        one of four settings can be opened, so the browser can never make the
+        server open some other file or program.
+        """
+        path: Path
+        if req.setting == "table_layout_file":
+            # Without a separate layout file the layout sheet lives in the item database.
+            path = cfg.table_layout_file or cfg.items_file
+        else:
+            path = getattr(cfg, req.setting)
+        exists = path.is_dir() if req.setting == "output_dir" else path.is_file()
+        if not exists:
+            raise HTTPException(status_code=404, detail=f"Not found: {path}")
+        try:
+            # folder=False on a directory opens the directory itself on every platform.
+            opener(path, False)
+        except OpenError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return Response(status_code=204)
+
     def current_settings() -> SettingsResponse:
         """Return the GUI-editable settings."""
         return SettingsResponse(
@@ -817,6 +867,31 @@ def create_app(
                     setattr(cfg, n, value)
                 raise HTTPException(status_code=500, detail=str(exc)) from exc
         return current_settings()
+
+    @app.get("/api/headers", response_model=HeadersResponse, dependencies=[Depends(require_local)])
+    def headers(items_file: str, layout_file: str = "", layout_sheet: str = "") -> HeadersResponse:
+        """List the headers of an item database, for the ID column pick list.
+
+        Reads the file named in the Settings field, which may not be saved
+        yet, so the list follows the database the user is choosing.
+
+        Args:
+            items_file: Path of the item database (.xlsx).
+            layout_file: Table layout file field; when set, the layout is not
+                in the database, so no sheet is skipped.
+            layout_sheet: Layout sheet field (empty: the saved setting); this
+                sheet of the database is skipped when finding the data sheet.
+        """
+        path = Path(items_file.strip()).expanduser()
+        if path.suffix.lower() != ".xlsx":
+            raise HTTPException(status_code=400, detail="The item database must be an .xlsx file.")
+        # Same rule as source(): the layout sheet never holds the data when it is in the database.
+        skip = None if layout_file.strip() else (layout_sheet.strip() or cfg.table_layout_sheet)
+        source = ExcelItemSource(path, skip_sheet=skip)
+        try:
+            return HeadersResponse(headers=source.headers())
+        except ItemSourceError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/api/fs", dependencies=[Depends(require_local)])
     def browse(path: str = "", files: bool = True, ext: str = ".xlsx") -> Listing:

@@ -3,6 +3,32 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-24 – Release status
+- At the user's request `v0.4.0` was promoted to a full (Latest) GitHub release when `v0.5.0` was published as a pre-release, without a separate Windows check of 0.4.0 (its open checks stay in the backlog).
+
+## 2026-11-24 – Column widths explained (0.5.0 step 5)
+- User asked whether widths scale to the Word page and follow the Excel proportions: yes, unchanged since 0.3.0 (`_build_table`: `width * w / sum(w)`, width = page width − margins of the placeholder's section). Only documented in README and shown as "NN% of width" per column in *Check Word table…* (`widthPercent` in `logic.js`, "<1%" for slivers).
+
+## 2026-11-24 – Rotated header text (0.5.0 step 4)
+- User's choice: rotation comes from the **Excel cell format** (`alignment.textRotation`), not a marker in the text. Excel stores +90° as 90 and −90° as 180 → Word `w:textDirection` `btLr` / `tbRl`. Other angles and 255 (stacked) → warning, horizontal. Merged cells use the top-left cell; with no header rows, the mapping cells' own format applies.
+- **Row height** (`trHeight`, rule *at least*) only for header rows holding rotated text: the Excel row height if the sheet stores one (`row_dimensions[r].height`; Excel also stores heights it grew itself), else `longest line × font size × 0.6 + 8 pt` (font: table font size setting, else the template's Normal style, else 11 pt). A rotated cell merged down shares its estimate between the rows. No font metrics in the stdlib → deliberately generous estimate.
+- Gotcha fixed on the way: `_shade` appended `w:shd` after `w:vAlign` (schema order violation Word tolerated). New `_add_tc_pr` inserts `tcPr` children in CT_TcPr order; used for `shd` and `textDirection`.
+- Check dialog: rotation via a `writing-mode: vertical-rl` span (+ `rotate(180deg)` for up); writing-mode on the `th` itself renders unevenly across browsers.
+
+## 2026-11-24 – Open buttons in Settings (0.5.0 step 3)
+- `POST /api/open-setting {setting}` with `setting` limited to `items_file`, `template_file`, `table_layout_file`, `output_dir` (Literal → 422 otherwise); opens only the **saved** path, never a path from the browser (same safety rule as `/api/open`). The GUI refuses with "Save settings first" when the field differs from the saved value.
+- Table layout without a layout file opens the item database (the layout sheet lives there).
+- The output folder uses the existing opener with `folder=False` on the directory: `os.startfile`/`open`/`xdg-open` open a directory itself on every platform, so `opener.py` needed only docs.
+
+## 2026-11-24 – ID column pick list (0.5.0 step 2)
+- `GET /api/headers?items_file=&layout_file=&layout_sheet=` (local only) reads only the header row of the file in the **Settings field, not the saved setting**, so the list follows a database being chosen. Same data-sheet rule as loading (layout sheet skipped only when no separate layout file). `#` and `*` headers are left out: they can never be the ID column.
+- GUI: a `<select>` replaces the text field when headers were read; on error the text field stays with a hint (error text in its tooltip). A `<datalist>` was rejected: browsers filter its options by the current text, so with "ID" filled in the other headers would not show.
+- A saved ID column the database lacks stays selectable, marked "(not in this database)", so opening Settings never changes the setting silently. Stale answers are dropped with a request counter.
+
+## 2026-11-24 – `\blank` marker for blank columns (0.5.0 step 1)
+- User's 0.4.0 test: `-` "did not work at all" and several `-` were "not allowed". A plain `-` (also repeated) worked in tests; the likely cause is autocorrect turning it into `–` (read as an unknown name → warning; twice → "mapped twice" error). The user's file was not at hand to confirm.
+- User's choice: **`\blank`** (matched ignoring case and outer spaces) is the documented marker – clearer and not touched by autocorrect. `-` and look-alikes (`–` `—` `−` `‐` `‑` `‒`) still mean blank so 0.4.0 layout files keep working (`LEGACY_BLANK_MARKERS`). `\blank*` is an error. The "mapped twice" message now suggests `\blank`.
+
 ## 2026-11-20 – GitHub release status
 - A release is published as a GitHub **pre-release** and promoted to a full release once the user has checked it on Windows. On 2026-11-20 the user promoted `v0.2.0` and `v0.3.0` (`v0.3.0` = Latest); `v0.4.0` stays a pre-release until its Windows check.
 

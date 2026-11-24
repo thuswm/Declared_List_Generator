@@ -110,3 +110,53 @@ def test_missing_program_becomes_open_error(tmp_path: Path, monkeypatch: pytest.
     monkeypatch.setattr(subprocess, "Popen", missing)
     with pytest.raises(OpenError, match="No such file"):
         open_path(tmp_path / "a.docx", False, platform="linux")
+
+
+@pytest.fixture
+def settings_setup(tmp_path: Path) -> tuple[TestClient, list, Config]:
+    """A local client with a recording opener and settings pointing at real files."""
+    calls: list[tuple[Path, bool]] = []
+    cfg = Config(
+        items_file=ROOT / "data" / "items.xlsx",
+        template_file=ROOT / "templates" / "declared_list_template.docx",
+        sessions_dir=tmp_path / "s",
+        output_dir=tmp_path,
+    )
+    app = create_app(cfg, opener=lambda path, folder: calls.append((path, folder)))
+    return TestClient(app, client=LOCAL), calls, cfg
+
+
+def test_open_setting_files_and_folder(settings_setup: tuple[TestClient, list, Config]) -> None:
+    """Each saved setting opens its own path; no layout file means the item database."""
+    c, calls, cfg = settings_setup
+    for setting in ("items_file", "template_file", "table_layout_file", "output_dir"):
+        assert c.post("/api/open-setting", json={"setting": setting}).status_code == 204
+    assert calls == [(cfg.items_file, False), (cfg.template_file, False),
+                     (cfg.items_file, False), (cfg.output_dir, False)]
+    cfg.table_layout_file = ROOT / "data" / "layout_example.xlsx"
+    assert c.post("/api/open-setting", json={"setting": "table_layout_file"}).status_code == 204
+    assert calls[-1] == (cfg.table_layout_file, False)
+
+
+def test_open_setting_refuses_unknown_missing_and_remote(
+    settings_setup: tuple[TestClient, list, Config], tmp_path: Path
+) -> None:
+    """Only the four settings, only existing paths, only from this computer."""
+    c, calls, cfg = settings_setup
+    assert c.post("/api/open-setting", json={"setting": "sessions_dir"}).status_code == 422
+    cfg.template_file = tmp_path / "gone.docx"
+    r = c.post("/api/open-setting", json={"setting": "template_file"})
+    assert r.status_code == 404 and "gone.docx" in r.json()["detail"]
+    remote = TestClient(c.app, client=("192.168.1.20", 50000))
+    assert remote.post("/api/open-setting", json={"setting": "items_file"}).status_code == 403
+    assert calls == []
+
+
+def test_open_setting_reports_opener_failure(tmp_path: Path) -> None:
+    """An opener error becomes a readable 500."""
+    def broken(path: Path, folder: bool) -> None:
+        raise OpenError("Cannot open items.xlsx: no program")
+
+    app = create_app(Config(items_file=ROOT / "data" / "items.xlsx", sessions_dir=tmp_path / "s"), opener=broken)
+    r = TestClient(app, client=LOCAL).post("/api/open-setting", json={"setting": "items_file"})
+    assert r.status_code == 500 and "no program" in r.json()["detail"]

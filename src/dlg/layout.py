@@ -7,8 +7,9 @@ database workbook):
   of the data sheet; the data rows go beneath the header in that order. The
   mapping row itself is not printed.
 * The table spans the columns from the first to the last filled cell of the
-  mapping row. A ``-`` there is a blank Word column on purpose (it may also
-  sit at the table edge). An empty cell in between, or a name the database
+  mapping row. ``\\blank`` there (any case) is a blank Word column on purpose
+  (it may also sit at the table edge). The 0.4.0 marker ``-`` and dash
+  look-alikes such as ``–`` still work. An empty cell in between, or a name the database
   lacks, also gives a blank column, but with a warning.
 * The rows above the mapping row (from the first row with text) are the Word
   header. They hold free text, and merged cells (across and down) become merged
@@ -19,6 +20,9 @@ database workbook):
   leading or trailing spaces (with a warning).
 * Blank columns are Word-only: exported empty and not shown in the browser.
 * The Excel column widths set the relative Word column widths.
+* Header text rotated 90° in Excel (Format Cells → Alignment → Orientation) is
+  rotated in Word too: turned down (−90°, reads top to bottom) or up (+90°).
+  Its row gets the Excel row height if one is stored, else an estimated one.
 """
 
 from __future__ import annotations
@@ -36,11 +40,19 @@ from dlg.sources.excel import INPUT_MARKER, cell_text
 #: Default name of the layout sheet inside the item database workbook.
 DEFAULT_LAYOUT_SHEET = "Word layout"
 
-#: Mapping-cell text for a Word column that is blank on purpose.
-BLANK_MARKER = "-"
+#: Mapping-cell text for a Word column that is blank on purpose (matched ignoring case).
+BLANK_MARKER = "\\blank"
+
+#: Older blank markers, still accepted: the 0.4.0 ``-`` and the dashes that
+#: autocorrect or keyboards often put in its place (en/em dash, minus, hyphen).
+LEGACY_BLANK_MARKERS = frozenset({"-", "\u2013", "\u2014", "\u2212", "\u2010", "\u2011", "\u2012"})
 
 #: Excel's default column width (characters) for columns without a set width.
 EXCEL_DEFAULT_WIDTH = 8.43
+
+#: Header text directions, by Excel ``textRotation``. Excel stores +90° (text
+#: reads bottom to top) as 90 and −90° (top to bottom) as 180.
+ROTATIONS = {90: "up", 180: "down"}
 
 
 class LayoutError(Exception):
@@ -57,6 +69,8 @@ class HeaderCell:
         text: Cell text (may contain line breaks).
         row_span: Number of header rows the cell covers.
         col_span: Number of columns the cell covers.
+        rotation: '' for horizontal text, ``down`` (reads top to bottom) or
+            ``up`` (bottom to top).
     """
 
     row: int
@@ -64,6 +78,7 @@ class HeaderCell:
     text: str
     row_span: int = 1
     col_span: int = 1
+    rotation: str = ""
 
     @property
     def merged(self) -> bool:
@@ -76,9 +91,9 @@ class LayoutColumn:
     """One column of the Word table, as named in the mapping row.
 
     Attributes:
-        name: Mapping text without the ``*`` ('' for an empty cell or ``-``).
+        name: Mapping text without the ``*`` ('' for an empty cell or ``\\blank``).
         user_input: True if the name ended in ``*``.
-        blank: True if the column is exported empty (``-``, an empty cell, or
+        blank: True if the column is exported empty (``\\blank``, an empty cell, or
             a name the database lacks).
         ref: Excel cell of the mapping name, e.g. ``C5`` (for messages).
     """
@@ -107,7 +122,9 @@ class TableLayout:
         widths: Relative column widths (Excel character units), one per column.
         source: Human-readable origin, e.g. ``items.xlsx › Word layout``.
         warnings: Problems that do not stop the export (blank columns that
-            were probably not meant to be blank).
+            were probably not meant to be blank, unsupported text angles).
+        row_heights: Excel row height in points per header row, None where
+            the sheet stores none (empty list: none known).
     """
 
     columns: list[LayoutColumn]
@@ -116,6 +133,7 @@ class TableLayout:
     widths: list[float]
     source: str = ""
     warnings: list[str] = field(default_factory=list)
+    row_heights: list[float | None] = field(default_factory=list)
 
     @property
     def column_names(self) -> list[str]:
@@ -171,6 +189,18 @@ def load_layout(path: str | Path, sheet: str, required: bool) -> TableLayout | N
         wb.close()
 
 
+def is_blank_marker(text: str) -> bool:
+    """Tell whether a mapping cell marks a blank Word column on purpose.
+
+    Args:
+        text: Stripped mapping-cell text.
+
+    Returns:
+        True for ``\\blank`` (any case) or one of the older dash markers.
+    """
+    return text.casefold() == BLANK_MARKER or text in LEGACY_BLANK_MARKERS
+
+
 def find_sheet(names: list[str], wanted: str) -> str | None:
     """Find a sheet by name: exact match first, then ignoring case.
 
@@ -219,7 +249,7 @@ def parse_layout(ws: Worksheet, source: str) -> TableLayout:
     for c in range(first_col, last_col + 1):
         ref = f"{get_column_letter(c)}{map_row}"
         name = text.get((map_row, c), "")
-        if name == BLANK_MARKER:
+        if is_blank_marker(name):
             columns.append(LayoutColumn(name="", blank=True, ref=ref))
             continue
         if not name:
@@ -235,29 +265,84 @@ def parse_layout(ws: Worksheet, source: str) -> TableLayout:
             name = name.rstrip(INPUT_MARKER).rstrip()
         if not name:
             raise LayoutError(f"Layout sheet {source}: cell {ref} has no column name before the '*'.")
-        if name == BLANK_MARKER:
+        if is_blank_marker(name):
             raise LayoutError(
-                f"Layout sheet {source}: cell {ref}: '{BLANK_MARKER}' marks a blank column "
+                f"Layout sheet {source}: cell {ref}: '{name}' marks a blank column "
                 "and cannot be an input column."
             )
         if name in [col.name for col in columns]:
-            raise LayoutError(f"Layout sheet {source}: column '{name}' is mapped twice (cell {ref}).")
+            raise LayoutError(
+                f"Layout sheet {source}: column '{name}' is mapped twice (cell {ref}). "
+                f"For several blank columns write '{BLANK_MARKER}' in each."
+            )
         columns.append(LayoutColumn(name=name, user_input=user_input, ref=ref))
 
     in_table = [r for r, c in text if r < map_row and first_col <= c <= last_col]
     first_row = min(in_table, default=map_row)
     cells = _header_cells(ws, source, text, first_row, map_row, first_col, last_col)
+    header_first = first_row
     if not cells:
         # No header rows above the mapping row: the column names are the header.
         cells = [HeaderCell(0, i, col.name) for i, col in enumerate(columns)]
+        header_first = map_row
+    warnings.extend(_read_rotations(ws, cells, header_first, first_col))
+    header_rows = max(map_row - first_row, 1)
     return TableLayout(
         columns=columns,
-        header_rows=max(map_row - first_row, 1),
+        header_rows=header_rows,
         cells=cells,
         widths=_column_widths(ws, first_col, last_col),
         source=source,
         warnings=warnings,
+        row_heights=[_row_height(ws, header_first + r) for r in range(header_rows)],
     )
+
+
+def _read_rotations(ws: Worksheet, cells: list[HeaderCell], first_row: int, first_col: int) -> list[str]:
+    """Copy the Excel text rotation of each header cell (its top-left cell) into ``rotation``.
+
+    Args:
+        ws: The layout sheet (full mode, so cell formats are loaded).
+        cells: Header cells, updated in place.
+        first_row: Sheet row (1-based) of header row 0.
+        first_col: Sheet column (1-based) of table column 0.
+
+    Returns:
+        Warnings for angles Word cannot show (shown horizontal instead).
+    """
+    warnings: list[str] = []
+    for cell in cells:
+        r, c = first_row + cell.row, first_col + cell.col
+        angle = int(ws.cell(r, c).alignment.textRotation or 0)
+        if not angle:
+            continue
+        if angle in ROTATIONS:
+            cell.rotation = ROTATIONS[angle]
+        elif cell.text:
+            # Word table cells only turn text by a quarter turn; 255 is Excel's stacked "vertical text".
+            what = "stacked vertical text" if angle == 255 else f"text at {angle if angle <= 90 else 90 - angle}°"
+            warnings.append(
+                f"Cell {get_column_letter(c)}{r} has {what}; Word shows it horizontal. "
+                "Use +90° or −90° (Format Cells → Alignment → Orientation) to rotate it."
+            )
+    return warnings
+
+
+def _row_height(ws: Worksheet, row: int) -> float | None:
+    """Return the row height stored in the sheet, in points.
+
+    Excel stores a height for rows set by hand and for rows it grew itself
+    (e.g. to fit rotated text); other rows have none.
+
+    Args:
+        ws: The layout sheet.
+        row: Sheet row (1-based).
+
+    Returns:
+        The height, or None if the sheet stores none.
+    """
+    dim = ws.row_dimensions.get(row)
+    return float(dim.height) if dim is not None and dim.height else None
 
 
 def _header_cells(

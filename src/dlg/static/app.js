@@ -6,7 +6,7 @@
  */
 import {
   chooseFilter, currentLabel, emptyInputsText, errorMessage, filterItems, filterSessions, filterValues,
-  formatDateTime, headerRows, headerState, layoutWarningText, matchesQuery, partitionIds, sessionLabel, setMany, setUserValue,
+  formatDateTime, headerRows, headerState, idColumnChoices, widthPercent, layoutWarningText, matchesQuery, partitionIds, sessionLabel, setMany, setUserValue,
   sortSessions, suggestFileName, withUserValues,
 } from './logic.js';
 
@@ -26,6 +26,7 @@ const state = {
   sessionKind: 'user', // library the current session came from: 'user' | 'global' | 'other'
   sessionPath: '', // file of the session last loaded ('' after a save)
   libraryDirs: { user: '', global: '' }, // session library folders from the settings
+  savedSettings: null, // last settings from the server (the Open buttons only open saved paths)
   configurationName: '', // configuration name of that session, as last loaded or saved
   userValues: {}, // values typed in user-input columns: {itemId: {column: value}}
   layoutWarnings: [], // Word table layout warnings from the last item load
@@ -42,7 +43,7 @@ const el = {
   clearFilters: $('clear-filters-btn'), panel: $('filter-panel'), panelTitle: $('filter-title'),
   panelQuery: $('filter-query'), panelAll: $('filter-all'), panelValues: $('filter-values'),
   panelOk: $('filter-ok'), panelCancel: $('filter-cancel'), panelClear: $('filter-clear'),
-  settings: $('settings'), itemsFile: $('items-file'), idColumn: $('id-column'), outputDir: $('output-dir'),
+  settings: $('settings'), itemsFile: $('items-file'), idColumn: $('id-column'), idColumnPick: $('id-column-pick'), idColumnHint: $('id-column-hint'), outputDir: $('output-dir'),
   templateFile: $('template-file'), templateBrowse: $('template-browse'),
   layoutFile: $('layout-file'), layoutBrowse: $('layout-browse'), layoutSheet: $('layout-sheet'),
   fontSize: $('font-size'), markEmpty: $('mark-empty'), emptyText: $('empty-text'),
@@ -565,7 +566,14 @@ function renderLayoutCheck(layout) {
     const tr = document.createElement('tr');
     for (const cell of cells) {
       const th = document.createElement('th');
-      th.textContent = cell.text;
+      if (cell.rotation) {
+        // A span carries the rotation: writing-mode on a table cell itself is unevenly supported.
+        const text = make('span', cell.text, `rotated rotated-${cell.rotation}`);
+        text.title = cell.rotation === 'down' ? 'Rotated: reads top to bottom' : 'Rotated: reads bottom to top';
+        th.append(text);
+      } else {
+        th.textContent = cell.text;
+      }
       if (cell.row_span > 1) th.rowSpan = cell.row_span;
       if (cell.col_span > 1) th.colSpan = cell.col_span;
       tr.append(th);
@@ -573,9 +581,11 @@ function renderLayoutCheck(layout) {
     thead.append(tr);
   }
   const mapping = document.createElement('tr');
-  for (const column of layout.columns) {
+  for (const [i, column] of layout.columns.entries()) {
     const td = document.createElement('td');
     td.textContent = column.user_input ? `${column.label} *` : column.label;
+    // Share of the table width: the Excel widths only count relative to each other.
+    td.append(make('span', `${widthPercent(layout.widths[i])} of width`, 'layout-width'));
     if (column.user_input) td.classList.add('layout-input');
     if (column.blank) td.classList.add('layout-blank');
     mapping.append(td);
@@ -763,6 +773,7 @@ function changeLibraryFolder() {
           const cfg = await sendJson('/api/settings', 'PUT',
             kind === 'user' ? { sessions_dir: folder } : { global_sessions_dir: folder });
           state.libraryDirs = { user: cfg.sessions_dir, global: cfg.global_sessions_dir };
+          state.savedSettings = cfg;
           if (kind === 'user') await refreshSessions();
           showStatus(`${kind === 'user' ? 'My sessions' : 'Shared library'} folder set to ${folder}.`);
         } catch (err) {
@@ -913,8 +924,87 @@ function showSettings(cfg) {
   el.emptyText.value = cfg.empty_input_text;
   el.outputDir.value = cfg.output_dir;
   state.libraryDirs = { user: cfg.sessions_dir, global: cfg.global_sessions_dir };
+  state.savedSettings = cfg;
   // Everything that changes the columns: a change reloads the items.
   state.savedDatabase = [cfg.items_file, cfg.id_column, cfg.table_layout_file, cfg.table_layout_sheet].join('\n');
+  refreshIdColumnChoices(cfg.id_column);
+}
+
+/** The ID column chosen in Settings: from the pick list when shown, else the text field. */
+const idColumnValue = () => (el.idColumnPick.hidden ? el.idColumn.value : el.idColumnPick.value).trim();
+
+/** Counter so only the answer to the latest headers request is shown. */
+let headersTicket = 0;
+
+/**
+ * Offer the headers of the database in the Item database field as ID column choices.
+ * The field may not be saved yet, so the list follows what the user is choosing.
+ * If the headers cannot be read, the free text field stays, with a hint.
+ * @param {string} [current] ID column to keep selected (default: the one chosen now).
+ */
+async function refreshIdColumnChoices(current = idColumnValue()) {
+  const ticket = ++headersTicket;
+  const itemsFile = el.itemsFile.value.trim();
+  let headers = [];
+  let problem = '';
+  if (itemsFile) {
+    const q = new URLSearchParams({
+      items_file: itemsFile, layout_file: el.layoutFile.value.trim(), layout_sheet: el.layoutSheet.value.trim(),
+    });
+    try {
+      ({ headers } = await api(`/api/headers?${q}`));
+    } catch (err) {
+      problem = err.message;
+    }
+  }
+  if (ticket !== headersTicket) return; // the fields changed again meanwhile
+  const usePick = headers.length > 0;
+  el.idColumn.value = current;
+  el.idColumn.hidden = usePick;
+  el.idColumnPick.hidden = !usePick;
+  el.idColumnHint.title = '';
+  if (!usePick) {
+    el.idColumnHint.textContent = problem ? 'Cannot read the headers of the database: type the name.' : '';
+    el.idColumnHint.title = problem;
+    return;
+  }
+  const { options, selected, missing } = idColumnChoices(current, headers);
+  el.idColumnPick.replaceChildren(...options.map(({ value, label }) => {
+    const option = make('option', label);
+    option.value = value;
+    return option;
+  }));
+  el.idColumnPick.value = selected;
+  el.idColumnHint.textContent = missing ? `'${current}' is not a column of this database: pick the ID column.` : '';
+}
+
+/** Settings field and label for each Open button (by its data-setting). */
+const OPEN_SETTINGS = {
+  items_file: ['itemsFile', 'item database'],
+  template_file: ['templateFile', 'Word template'],
+  table_layout_file: ['layoutFile', 'table layout'],
+  output_dir: ['outputDir', 'output folder'],
+};
+
+/**
+ * Open a saved settings file or folder in its program (Excel, Word, Explorer).
+ * The server only opens saved paths, so an edited field must be saved first.
+ * @param {string} setting Key of {@link OPEN_SETTINGS}.
+ */
+async function openSetting(setting) {
+  const [field, label] = OPEN_SETTINGS[setting];
+  const saved = state.savedSettings?.[setting] ?? '';
+  if (el[field].value.trim() !== saved) {
+    showStatus(`The ${label} field has changed: Save settings first, then Open.`, 'warn');
+    return;
+  }
+  try {
+    await sendJson('/api/open-setting', 'POST', { setting });
+    const what = setting === 'table_layout_file' && !saved ? 'item database (it holds the layout sheet)' : label;
+    showStatus(`Opening the ${what}… After saving changes there, Check Word table or export again.`);
+  } catch (err) {
+    showStatus(err.message, 'error');
+  }
 }
 
 /** Fill the settings panel from the server. */
@@ -942,7 +1032,7 @@ async function saveSettings() {
     const before = state.savedDatabase;
     const cfg = await sendJson('/api/settings', 'PUT', {
       items_file: el.itemsFile.value.trim(),
-      id_column: el.idColumn.value.trim(),
+      id_column: idColumnValue(),
       template_file: el.templateFile.value.trim(),
       table_layout_file: el.layoutFile.value.trim(),
       table_layout_sheet: el.layoutSheet.value.trim(),
@@ -1073,14 +1163,22 @@ function chooseBrowse() {
 /** Wire up the settings panel and the browse dialog. */
 function bindSettingsEvents() {
   el.settingsSave.addEventListener('click', saveSettings);
+  for (const btn of el.settings.querySelectorAll('button.open-setting')) {
+    btn.addEventListener('click', () => openSetting(btn.dataset.setting));
+  }
+  // The data sheet (and so its headers) depends on all three fields.
+  for (const field of [el.itemsFile, el.layoutFile, el.layoutSheet]) {
+    field.addEventListener('change', () => refreshIdColumnChoices());
+  }
+  el.idColumnPick.addEventListener('change', () => { el.idColumnHint.textContent = ''; });
   el.itemsBrowse.addEventListener('click', () => openBrowse({
     title: 'Choose the item database (.xlsx)', files: true, start: el.itemsFile.value.trim(),
-    onChoose: (p) => { el.itemsFile.value = p; el.settingsSave.focus(); },
+    onChoose: (p) => { el.itemsFile.value = p; refreshIdColumnChoices(); el.settingsSave.focus(); },
   }));
   el.layoutBrowse.addEventListener('click', () => openBrowse({
     title: 'Choose the workbook with the Word layout sheet (.xlsx)', files: true,
     start: el.layoutFile.value.trim() || el.itemsFile.value.trim(),
-    onChoose: (p) => { el.layoutFile.value = p; el.settingsSave.focus(); },
+    onChoose: (p) => { el.layoutFile.value = p; refreshIdColumnChoices(); el.settingsSave.focus(); },
   }));
   el.templateBrowse.addEventListener('click', () => openBrowse({
     title: 'Choose the Word template (.docx)', files: true, ext: '.docx', start: el.templateFile.value.trim(),

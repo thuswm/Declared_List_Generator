@@ -328,3 +328,29 @@ export function headerRows(headerRows, cells) {
   for (const row of rows) row.sort((a, b) => a.col - b.col);
   return rows;
 }
+
+/**
+ * Options for the ID column pick list in Settings.
+ * The saved name stays selectable even if the database lacks it (marked), so
+ * opening Settings never silently changes the ID column.
+ * @param {string} current The ID column now set ('' if none).
+ * @param {string[]} headers Headers of the database in the Item database field.
+ * @returns {{options: Array<{value:string,label:string}>, selected: string, missing: boolean}}
+ *   `missing`: `current` is set but not among the headers.
+ */
+export function idColumnChoices(current, headers) {
+  const missing = Boolean(current) && !headers.includes(current);
+  const options = headers.map((h) => ({ value: h, label: h }));
+  if (missing) options.unshift({ value: current, label: `${current} (not in this database)` });
+  return { options, selected: current || headers[0] || '', missing };
+}
+
+/**
+ * Format a column's share of the table width for the Check Word table dialog.
+ * @param {number} fraction Share of the total width (0..1).
+ * @returns {string} E.g. "12%", or "<1%" for a sliver that would round to 0.
+ */
+export function widthPercent(fraction) {
+  const pct = Math.round((fraction || 0) * 100);
+  return pct === 0 && fraction > 0 ? '<1%' : `${pct}%`;
+}

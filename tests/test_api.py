@@ -440,3 +440,35 @@ def test_browse_lists_docx_files_when_asked(local: tuple[TestClient, Path], tmp_
     body = c.get("/api/fs", params={"path": str(tmp_path), "ext": ".docx"}).json()
     assert [f["name"] for f in body["files"]] == ["t.docx"]
     assert c.get("/api/fs", params={"path": str(tmp_path), "ext": ".exe"}).status_code == 400
+
+
+def test_headers_for_id_column_pick_list(local: tuple[TestClient, Path], tmp_path: Path) -> None:
+    """The headers of any database file are listed, without '#' and '*' columns, even if unsaved."""
+    from openpyxl import Workbook
+
+    c, _ = local
+    body = c.get("/api/headers", params={"items_file": str(ROOT / "data" / "items.xlsx")}).json()
+    assert body["headers"] == ["ID", "Name", "Description", "Category", "Supplier"]
+
+    # A new database with another ID header; its layout sheet comes first and is skipped.
+    other = tmp_path / "other.xlsx"
+    wb = Workbook()
+    wb.active.title = "Word layout"
+    wb.active.append(["not", "data"])
+    wb.create_sheet("Data").append(["Part No", "Qty*", "#note", "Part No", None, 7])
+    wb.save(other)
+    body = c.get("/api/headers", params={"items_file": str(other)}).json()
+    assert body["headers"] == ["Part No", "7"]
+    # With a separate layout file the first sheet is the data sheet.
+    body = c.get("/api/headers", params={"items_file": str(other), "layout_file": "x.xlsx"}).json()
+    assert body["headers"] == ["not", "data"]
+
+
+def test_headers_errors(local: tuple[TestClient, Path], tmp_path: Path, client: TestClient) -> None:
+    """Missing or non-.xlsx files give a readable error; remote clients are refused."""
+    c, _ = local
+    r = c.get("/api/headers", params={"items_file": str(tmp_path / "missing.xlsx")})
+    assert r.status_code == 404 and "not found" in r.json()["detail"]
+    assert c.get("/api/headers", params={"items_file": "a.txt"}).status_code == 400
+    remote = TestClient(client.app, client=("192.168.1.20", 50000))
+    assert remote.get("/api/headers", params={"items_file": "a.xlsx"}).status_code == 403

@@ -122,8 +122,15 @@ are appended to an existing file with their defaults, so you can see and change 
 `TBD`, and **Save settings**. They are written to your configuration file and take effect
 immediately: the new database is loaded, and selected items that are not in it
 are deselected. If the database cannot be loaded at start-up, the panel opens
-by itself so the path or ID column can be fixed. Settings and browsing only
-work from the computer running the tool.
+by itself so the path or ID column can be fixed. The **ID column** is a pick
+list of the headers of the database named in *Item database* (also before
+saving); if that file cannot be read, type the name instead. **Open** next to
+a file or the output folder opens the *saved* path in Excel, Word or the file
+manager (Table layout without a file: the item database, which holds the
+layout sheet). Handy while adjusting: change the layout or template, save it
+there, then **Check Word table…** or export again – both read the files
+afresh. Settings and
+browsing only work from the computer running the tool.
 
 1. Tick the items that belong on the declared list (click the checkbox or the
    row). The header checkbox selects everything currently shown.
@@ -249,9 +256,11 @@ another `.xlsx` and sheet. Example: `data/layout_example.xlsx` (written by
   data sheet; the selected items are written beneath the header in that order.
   The mapping row itself is **not printed**. The table spans its first to last
   filled cell; a column may be mapped once.
-- A **`-`** in the mapping row is a **blank Word column** on purpose: its cells
-  stay empty (the header comes from the rows above). It also works at the left
-  or right edge of the table.
+- **`\blank`** in the mapping row (any case) is a **blank Word column** on
+  purpose: its cells stay empty (the header comes from the rows above). Use it
+  as often as needed; it also works at the left or right edge of the table.
+  (The 0.4.0 marker `-`, and dashes such as `–` that autocorrect puts in its
+  place, still work.)
 - The rows **above** it are the Word header: free text; merged cells (across
   and down) become merged cells in Word; Alt+Enter line breaks are kept. With
   no rows above, the mapping names form a one-row header. Merged cells must not
@@ -265,17 +274,27 @@ another `.xlsx` and sheet. Example: `data/layout_example.xlsx` (written by
 - An **empty mapping cell** inside the table, or a mapping name that is not a
   shown database column (and has no `*`), gives a blank Word column plus a
   **warning** (status bar, ⚠ on the "Word table" label; hover it for details).
-  The export still works. Use `-` to silence the warning, or `*` to type the
+  The export still works. Use `\blank` to silence the warning, or `*` to type the
   column in the tool.
 - Mapping names **ignore case and extra spaces** (`part  no` finds `Part No`),
   with a warning so the layout can be corrected. An exact name always wins; a
   name that loosely matches two database columns, or two mapping names that
   land on the same column, are errors.
-- **Column widths** in the layout sheet set the relative widths in Word,
-  scaled to the page width.
+- **Column widths** in the layout sheet count only **relative to each other**:
+  the Word table always fills the usable page width (page width minus left and
+  right margins) of the template section holding `{{DECLARED_LIST}}`, and each
+  column gets its share of it. Example: Excel widths 10, 20 and 10 give 25 %,
+  50 % and 25 % of the page width, however wide the Excel columns are.
+  *Check Word table…* shows each column's share.
+- **Rotated header text:** turn a header cell's text by −90° (reads top to
+  bottom) or +90° (bottom to top) in Excel (Format Cells → Alignment →
+  Orientation); Word shows it the same way. The row's height in Word is the
+  Excel row height if the sheet stores one (set it by dragging the row
+  border), otherwise an estimate from the longest line of text (on the
+  generous side). Other angles give a warning and stay horizontal.
 - **Check Word table…** (next to *Export*) shows the header as it will be
-  exported: merged cells, column widths in proportion, and a last row naming
-  each column's source (input `*` columns in bold, blank columns in red), plus
+  exported: merged cells, rotated text, column widths in proportion, and a
+  last row naming each column's source and its share of the width (input `*` columns in bold, blank columns in red), plus
   any layout warnings. It re-reads the sheet each time, so you can fix the
   layout in Excel, save, and check again without restarting.
 - No layout sheet in the database workbook → the automatic table. A separately
