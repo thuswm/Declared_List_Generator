@@ -1,6 +1,7 @@
 """Open a file or its folder with the operating system's default program.
 
-Used for the GUI's "Open document" / "Open folder" buttons after an export.
+Used for the GUI's "Open document" / "Open folder" buttons after an export and
+the "Open" buttons in Settings (database, template, layout, output folder).
 The server runs on the user's own computer, so the program opens on their
 desktop (the endpoint is local-only).
 """
@@ -24,13 +25,16 @@ class OpenError(Exception):
 def open_path(path: Path, folder: bool, platform: str | None = None) -> None:
     """Open a file in its default program, or show it in its folder.
 
+    A directory with ``folder=False`` is opened itself (Explorer, Finder or
+    the file manager).
+
     Windows: ``os.startfile`` (the program registered for ``.docx``, normally
     Word), and Explorer with the file selected for the folder. macOS: ``open``
     and ``open -R``. Elsewhere: ``xdg-open`` (the folder is opened; file
     managers have no common "select this file" option).
 
     Args:
-        path: The file.
+        path: The file (or a directory, see above).
         folder: True to show the containing folder instead of opening the file.
         platform: Value of ``sys.platform`` (injectable for tests).
 

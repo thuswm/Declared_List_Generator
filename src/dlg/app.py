@@ -7,6 +7,7 @@ the per-user :class:`dlg.config.Config` (see ``dlg/config.py``).
 from __future__ import annotations
 
 import re
+from typing import Literal
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -287,6 +288,17 @@ class OpenRequest(BaseModel):
 
     file_name: str = Field(min_length=1, max_length=260)
     folder: bool = False
+
+
+class OpenSettingRequest(BaseModel):
+    """Body of ``POST /api/open-setting``.
+
+    Attributes:
+        setting: Which saved setting to open: the item database, the Word
+            template, the table layout workbook or the output folder.
+    """
+
+    setting: Literal["items_file", "template_file", "table_layout_file", "output_dir"]
 
 
 class SaveSessionRequest(BaseModel):
@@ -706,6 +718,31 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"{name} is no longer in {cfg.output_dir}.")
         try:
             opener(path, req.folder)
+        except OpenError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return Response(status_code=204)
+
+    @app.post("/api/open-setting", status_code=204, dependencies=[Depends(require_local)])
+    def open_setting(req: OpenSettingRequest) -> Response:
+        """Open a file or folder named in the settings in its program (Excel, Word, Explorer).
+
+        Helps while adjusting the layout or template: edit, save, then check
+        or export again (both read the files afresh). Only the *saved* path of
+        one of four settings can be opened, so the browser can never make the
+        server open some other file or program.
+        """
+        path: Path
+        if req.setting == "table_layout_file":
+            # Without a separate layout file the layout sheet lives in the item database.
+            path = cfg.table_layout_file or cfg.items_file
+        else:
+            path = getattr(cfg, req.setting)
+        exists = path.is_dir() if req.setting == "output_dir" else path.is_file()
+        if not exists:
+            raise HTTPException(status_code=404, detail=f"Not found: {path}")
+        try:
+            # folder=False on a directory opens the directory itself on every platform.
+            opener(path, False)
         except OpenError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return Response(status_code=204)

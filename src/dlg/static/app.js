@@ -26,6 +26,7 @@ const state = {
   sessionKind: 'user', // library the current session came from: 'user' | 'global' | 'other'
   sessionPath: '', // file of the session last loaded ('' after a save)
   libraryDirs: { user: '', global: '' }, // session library folders from the settings
+  savedSettings: null, // last settings from the server (the Open buttons only open saved paths)
   configurationName: '', // configuration name of that session, as last loaded or saved
   userValues: {}, // values typed in user-input columns: {itemId: {column: value}}
   layoutWarnings: [], // Word table layout warnings from the last item load
@@ -763,6 +764,7 @@ function changeLibraryFolder() {
           const cfg = await sendJson('/api/settings', 'PUT',
             kind === 'user' ? { sessions_dir: folder } : { global_sessions_dir: folder });
           state.libraryDirs = { user: cfg.sessions_dir, global: cfg.global_sessions_dir };
+          state.savedSettings = cfg;
           if (kind === 'user') await refreshSessions();
           showStatus(`${kind === 'user' ? 'My sessions' : 'Shared library'} folder set to ${folder}.`);
         } catch (err) {
@@ -913,6 +915,7 @@ function showSettings(cfg) {
   el.emptyText.value = cfg.empty_input_text;
   el.outputDir.value = cfg.output_dir;
   state.libraryDirs = { user: cfg.sessions_dir, global: cfg.global_sessions_dir };
+  state.savedSettings = cfg;
   // Everything that changes the columns: a change reloads the items.
   state.savedDatabase = [cfg.items_file, cfg.id_column, cfg.table_layout_file, cfg.table_layout_sheet].join('\n');
   refreshIdColumnChoices(cfg.id_column);
@@ -964,6 +967,35 @@ async function refreshIdColumnChoices(current = idColumnValue()) {
   }));
   el.idColumnPick.value = selected;
   el.idColumnHint.textContent = missing ? `'${current}' is not a column of this database: pick the ID column.` : '';
+}
+
+/** Settings field and label for each Open button (by its data-setting). */
+const OPEN_SETTINGS = {
+  items_file: ['itemsFile', 'item database'],
+  template_file: ['templateFile', 'Word template'],
+  table_layout_file: ['layoutFile', 'table layout'],
+  output_dir: ['outputDir', 'output folder'],
+};
+
+/**
+ * Open a saved settings file or folder in its program (Excel, Word, Explorer).
+ * The server only opens saved paths, so an edited field must be saved first.
+ * @param {string} setting Key of {@link OPEN_SETTINGS}.
+ */
+async function openSetting(setting) {
+  const [field, label] = OPEN_SETTINGS[setting];
+  const saved = state.savedSettings?.[setting] ?? '';
+  if (el[field].value.trim() !== saved) {
+    showStatus(`The ${label} field has changed: Save settings first, then Open.`, 'warn');
+    return;
+  }
+  try {
+    await sendJson('/api/open-setting', 'POST', { setting });
+    const what = setting === 'table_layout_file' && !saved ? 'item database (it holds the layout sheet)' : label;
+    showStatus(`Opening the ${what}… After saving changes there, Check Word table or export again.`);
+  } catch (err) {
+    showStatus(err.message, 'error');
+  }
 }
 
 /** Fill the settings panel from the server. */
@@ -1122,6 +1154,9 @@ function chooseBrowse() {
 /** Wire up the settings panel and the browse dialog. */
 function bindSettingsEvents() {
   el.settingsSave.addEventListener('click', saveSettings);
+  for (const btn of el.settings.querySelectorAll('button.open-setting')) {
+    btn.addEventListener('click', () => openSetting(btn.dataset.setting));
+  }
   // The data sheet (and so its headers) depends on all three fields.
   for (const field of [el.itemsFile, el.layoutFile, el.layoutSheet]) {
     field.addEventListener('change', () => refreshIdColumnChoices());

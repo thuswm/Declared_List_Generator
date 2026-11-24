@@ -3,6 +3,11 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-24 – Open buttons in Settings (0.5.0 step 3)
+- `POST /api/open-setting {setting}` with `setting` limited to `items_file`, `template_file`, `table_layout_file`, `output_dir` (Literal → 422 otherwise); opens only the **saved** path, never a path from the browser (same safety rule as `/api/open`). The GUI refuses with "Save settings first" when the field differs from the saved value.
+- Table layout without a layout file opens the item database (the layout sheet lives there).
+- The output folder uses the existing opener with `folder=False` on the directory: `os.startfile`/`open`/`xdg-open` open a directory itself on every platform, so `opener.py` needed only docs.
+
 ## 2026-11-24 – ID column pick list (0.5.0 step 2)
 - `GET /api/headers?items_file=&layout_file=&layout_sheet=` (local only) reads only the header row of the file in the **Settings field, not the saved setting**, so the list follows a database being chosen. Same data-sheet rule as loading (layout sheet skipped only when no separate layout file). `#` and `*` headers are left out: they can never be the ID column.
 - GUI: a `<select>` replaces the text field when headers were read; on error the text field stays with a hint (error text in its tooltip). A `<datalist>` was rejected: browsers filter its options by the current text, so with "ID" filled in the other headers would not show.

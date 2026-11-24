@@ -124,7 +124,12 @@ immediately: the new database is loaded, and selected items that are not in it
 are deselected. If the database cannot be loaded at start-up, the panel opens
 by itself so the path or ID column can be fixed. The **ID column** is a pick
 list of the headers of the database named in *Item database* (also before
-saving); if that file cannot be read, type the name instead. Settings and
+saving); if that file cannot be read, type the name instead. **Open** next to
+a file or the output folder opens the *saved* path in Excel, Word or the file
+manager (Table layout without a file: the item database, which holds the
+layout sheet). Handy while adjusting: change the layout or template, save it
+there, then **Check Word table…** or export again – both read the files
+afresh. Settings and
 browsing only work from the computer running the tool.
 
 1. Tick the items that belong on the declared list (click the checkbox or the

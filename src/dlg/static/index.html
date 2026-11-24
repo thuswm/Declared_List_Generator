@@ -32,6 +32,7 @@
         <label for="items-file">Item database</label>
         <input id="items-file" type="text" class="wide path" spellcheck="false" placeholder="Full path to the .xlsx file">
         <button id="items-browse" type="button">Browse…</button>
+        <button type="button" class="open-setting" data-setting="items_file" title="Open the saved item database in Excel">Open</button>
       </div>
       <div class="row">
         <label for="id-column">ID column</label>
@@ -45,12 +46,14 @@
         <input id="template-file" type="text" class="wide path" spellcheck="false"
                placeholder="Full path to the .docx file with the {{DECLARED_LIST}} paragraph">
         <button id="template-browse" type="button">Browse…</button>
+        <button type="button" class="open-setting" data-setting="template_file" title="Open the saved Word template in Word">Open</button>
       </div>
       <div class="row">
         <label for="layout-file">Table layout</label>
         <input id="layout-file" type="text" class="wide path" spellcheck="false"
                placeholder="Empty: the layout sheet inside the item database">
         <button id="layout-browse" type="button">Browse…</button>
+        <button type="button" class="open-setting" data-setting="table_layout_file" title="Open the saved layout workbook in Excel (the item database if no layout file is set)">Open</button>
       </div>
       <div class="row">
         <label for="layout-sheet">Layout sheet</label>
@@ -73,6 +76,7 @@
         <label for="output-dir">Output folder</label>
         <input id="output-dir" type="text" class="wide path" spellcheck="false" placeholder="Folder for generated Word documents">
         <button id="output-browse" type="button">Browse…</button>
+        <button type="button" class="open-setting" data-setting="output_dir" title="Open the saved output folder">Open</button>
       </div>
       <div class="row">
         <span class="label-gap"></span>
