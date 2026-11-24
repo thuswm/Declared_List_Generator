@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  chooseFilter, currentLabel, idColumnChoices, emptyInputsText, errorMessage, formatDateTime, headerRows, filterItems, filterValues, headerState, matchesQuery, partitionIds,
+  chooseFilter, currentLabel, idColumnChoices, widthPercent, emptyInputsText, errorMessage, formatDateTime, headerRows, filterItems, filterValues, headerState, matchesQuery, partitionIds,
   filterSessions, layoutWarningText, sessionLabel, setMany, setUserValue, sortSessions, suggestFileName, withUserValues,
 } from '../../src/dlg/static/logic.js';
 
@@ -251,4 +251,11 @@ test('idColumnChoices: a name the database lacks stays first and is marked', () 
 test('idColumnChoices: nothing set picks the first header', () => {
   assert.equal(idColumnChoices('', ['Code', 'Name']).selected, 'Code');
   assert.equal(idColumnChoices('', []).selected, '');
+});
+
+test('widthPercent: rounds, keeps slivers visible', () => {
+  assert.equal(widthPercent(0.1234), '12%');
+  assert.equal(widthPercent(0.004), '<1%');
+  assert.equal(widthPercent(0), '0%');
+  assert.equal(widthPercent(1), '100%');
 });

@@ -344,3 +344,13 @@ export function idColumnChoices(current, headers) {
   if (missing) options.unshift({ value: current, label: `${current} (not in this database)` });
   return { options, selected: current || headers[0] || '', missing };
 }
+
+/**
+ * Format a column's share of the table width for the Check Word table dialog.
+ * @param {number} fraction Share of the total width (0..1).
+ * @returns {string} E.g. "12%", or "<1%" for a sliver that would round to 0.
+ */
+export function widthPercent(fraction) {
+  const pct = Math.round((fraction || 0) * 100);
+  return pct === 0 && fraction > 0 ? '<1%' : `${pct}%`;
+}

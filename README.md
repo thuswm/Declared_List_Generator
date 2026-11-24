@@ -280,8 +280,12 @@ another `.xlsx` and sheet. Example: `data/layout_example.xlsx` (written by
   with a warning so the layout can be corrected. An exact name always wins; a
   name that loosely matches two database columns, or two mapping names that
   land on the same column, are errors.
-- **Column widths** in the layout sheet set the relative widths in Word,
-  scaled to the page width.
+- **Column widths** in the layout sheet count only **relative to each other**:
+  the Word table always fills the usable page width (page width minus left and
+  right margins) of the template section holding `{{DECLARED_LIST}}`, and each
+  column gets its share of it. Example: Excel widths 10, 20 and 10 give 25 %,
+  50 % and 25 % of the page width, however wide the Excel columns are.
+  *Check Word table…* shows each column's share.
 - **Rotated header text:** turn a header cell's text by −90° (reads top to
   bottom) or +90° (bottom to top) in Excel (Format Cells → Alignment →
   Orientation); Word shows it the same way. The row's height in Word is the
@@ -289,8 +293,8 @@ another `.xlsx` and sheet. Example: `data/layout_example.xlsx` (written by
   border), otherwise an estimate from the longest line of text (on the
   generous side). Other angles give a warning and stay horizontal.
 - **Check Word table…** (next to *Export*) shows the header as it will be
-  exported: merged cells, column widths in proportion, and a last row naming
-  each column's source (input `*` columns in bold, blank columns in red), plus
+  exported: merged cells, rotated text, column widths in proportion, and a
+  last row naming each column's source and its share of the width (input `*` columns in bold, blank columns in red), plus
   any layout warnings. It re-reads the sheet each time, so you can fix the
   layout in Excel, save, and check again without restarting.
 - No layout sheet in the database workbook → the automatic table. A separately

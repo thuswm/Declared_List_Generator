@@ -6,7 +6,7 @@
  */
 import {
   chooseFilter, currentLabel, emptyInputsText, errorMessage, filterItems, filterSessions, filterValues,
-  formatDateTime, headerRows, headerState, idColumnChoices, layoutWarningText, matchesQuery, partitionIds, sessionLabel, setMany, setUserValue,
+  formatDateTime, headerRows, headerState, idColumnChoices, widthPercent, layoutWarningText, matchesQuery, partitionIds, sessionLabel, setMany, setUserValue,
   sortSessions, suggestFileName, withUserValues,
 } from './logic.js';
 
@@ -581,9 +581,11 @@ function renderLayoutCheck(layout) {
     thead.append(tr);
   }
   const mapping = document.createElement('tr');
-  for (const column of layout.columns) {
+  for (const [i, column] of layout.columns.entries()) {
     const td = document.createElement('td');
     td.textContent = column.user_input ? `${column.label} *` : column.label;
+    // Share of the table width: the Excel widths only count relative to each other.
+    td.append(make('span', `${widthPercent(layout.widths[i])} of width`, 'layout-width'));
     if (column.user_input) td.classList.add('layout-input');
     if (column.blank) td.classList.add('layout-blank');
     mapping.append(td);
