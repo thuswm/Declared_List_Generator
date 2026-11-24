@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  chooseFilter, currentLabel, emptyInputsText, errorMessage, formatDateTime, headerRows, filterItems, filterValues, headerState, matchesQuery, partitionIds,
+  chooseFilter, currentLabel, idColumnChoices, emptyInputsText, errorMessage, formatDateTime, headerRows, filterItems, filterValues, headerState, matchesQuery, partitionIds,
   filterSessions, layoutWarningText, sessionLabel, setMany, setUserValue, sortSessions, suggestFileName, withUserValues,
 } from '../../src/dlg/static/logic.js';
 
@@ -232,4 +232,23 @@ test('headerRows groups cells by row, sorted by column; ignores cells outside', 
   assert.deepEqual(headerRows(2, cells).map((r) => r.map((c) => c.text)),
     [['Electrical', 'Doc'], ['Voltage', 'Current']]);
   assert.deepEqual(headerRows(1, []), [[]]);
+});
+
+test('idColumnChoices: current header is selected, list unchanged', () => {
+  const r = idColumnChoices('ID', ['ID', 'Name']);
+  assert.deepEqual(r.options.map((o) => o.value), ['ID', 'Name']);
+  assert.equal(r.selected, 'ID');
+  assert.equal(r.missing, false);
+});
+
+test('idColumnChoices: a name the database lacks stays first and is marked', () => {
+  const r = idColumnChoices('Part No', ['ID', 'Name']);
+  assert.deepEqual(r.options[0], { value: 'Part No', label: 'Part No (not in this database)' });
+  assert.equal(r.selected, 'Part No');
+  assert.equal(r.missing, true);
+});
+
+test('idColumnChoices: nothing set picks the first header', () => {
+  assert.equal(idColumnChoices('', ['Code', 'Name']).selected, 'Code');
+  assert.equal(idColumnChoices('', []).selected, '');
 });

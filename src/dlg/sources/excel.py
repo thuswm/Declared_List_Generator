@@ -114,6 +114,36 @@ class ExcelItemSource:
             wb.close()
         return ItemTable(id_column=self.id_column, columns=columns, items=items)
 
+    def headers(self) -> list[str]:
+        """Read the headers that can serve as the ID column (for the Settings pick list).
+
+        Only the header row is read, and no ID column is needed, so this works
+        before the ID column is set correctly.
+
+        Returns:
+            Shown headers in sheet order, without omitted (``#``) and
+            user-input (``*``) columns, which cannot hold the IDs.
+
+        Raises:
+            ItemSourceError: If the file is missing or unreadable or has no data sheet.
+        """
+        if not self.path.is_file():
+            raise ItemSourceError(f"Item database not found: {self.path}")
+        try:
+            wb = load_workbook(self.path, read_only=True, data_only=True)
+        except Exception as exc:  # openpyxl raises various types on bad files
+            raise ItemSourceError(f"Cannot read {self.path}: {exc}") from exc
+        try:
+            header = next(self._data_sheet(wb).iter_rows(values_only=True, max_row=1), ())
+        finally:
+            wb.close()
+        names: list[str] = []
+        for raw in header:
+            name = cell_text(raw)
+            if name and not name.startswith(OMIT_MARKER) and not name.endswith(INPUT_MARKER) and name not in names:
+                names.append(name)
+        return names
+
     def _data_sheet(self, wb: Workbook) -> Worksheet:
         """Pick the data sheet: the first sheet that is not the layout sheet.
 

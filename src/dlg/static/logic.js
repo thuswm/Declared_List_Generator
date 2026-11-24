@@ -328,3 +328,19 @@ export function headerRows(headerRows, cells) {
   for (const row of rows) row.sort((a, b) => a.col - b.col);
   return rows;
 }
+
+/**
+ * Options for the ID column pick list in Settings.
+ * The saved name stays selectable even if the database lacks it (marked), so
+ * opening Settings never silently changes the ID column.
+ * @param {string} current The ID column now set ('' if none).
+ * @param {string[]} headers Headers of the database in the Item database field.
+ * @returns {{options: Array<{value:string,label:string}>, selected: string, missing: boolean}}
+ *   `missing`: `current` is set but not among the headers.
+ */
+export function idColumnChoices(current, headers) {
+  const missing = Boolean(current) && !headers.includes(current);
+  const options = headers.map((h) => ({ value: h, label: h }));
+  if (missing) options.unshift({ value: current, label: `${current} (not in this database)` });
+  return { options, selected: current || headers[0] || '', missing };
+}

@@ -56,6 +56,16 @@ def require_local(request: Request) -> None:
         raise HTTPException(status_code=403, detail="Only available on the computer running the tool.")
 
 
+class HeadersResponse(BaseModel):
+    """Headers of an item database that can be chosen as the ID column.
+
+    Attributes:
+        headers: Header texts in sheet order (no ``#`` or ``*`` columns).
+    """
+
+    headers: list[str]
+
+
 class SettingsResponse(BaseModel):
     """Settings editable in the GUI (``GET``/``PUT /api/settings``).
 
@@ -817,6 +827,31 @@ def create_app(
                     setattr(cfg, n, value)
                 raise HTTPException(status_code=500, detail=str(exc)) from exc
         return current_settings()
+
+    @app.get("/api/headers", response_model=HeadersResponse, dependencies=[Depends(require_local)])
+    def headers(items_file: str, layout_file: str = "", layout_sheet: str = "") -> HeadersResponse:
+        """List the headers of an item database, for the ID column pick list.
+
+        Reads the file named in the Settings field, which may not be saved
+        yet, so the list follows the database the user is choosing.
+
+        Args:
+            items_file: Path of the item database (.xlsx).
+            layout_file: Table layout file field; when set, the layout is not
+                in the database, so no sheet is skipped.
+            layout_sheet: Layout sheet field (empty: the saved setting); this
+                sheet of the database is skipped when finding the data sheet.
+        """
+        path = Path(items_file.strip()).expanduser()
+        if path.suffix.lower() != ".xlsx":
+            raise HTTPException(status_code=400, detail="The item database must be an .xlsx file.")
+        # Same rule as source(): the layout sheet never holds the data when it is in the database.
+        skip = None if layout_file.strip() else (layout_sheet.strip() or cfg.table_layout_sheet)
+        source = ExcelItemSource(path, skip_sheet=skip)
+        try:
+            return HeadersResponse(headers=source.headers())
+        except ItemSourceError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/api/fs", dependencies=[Depends(require_local)])
     def browse(path: str = "", files: bool = True, ext: str = ".xlsx") -> Listing:

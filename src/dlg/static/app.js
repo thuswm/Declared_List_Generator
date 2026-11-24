@@ -6,7 +6,7 @@
  */
 import {
   chooseFilter, currentLabel, emptyInputsText, errorMessage, filterItems, filterSessions, filterValues,
-  formatDateTime, headerRows, headerState, layoutWarningText, matchesQuery, partitionIds, sessionLabel, setMany, setUserValue,
+  formatDateTime, headerRows, headerState, idColumnChoices, layoutWarningText, matchesQuery, partitionIds, sessionLabel, setMany, setUserValue,
   sortSessions, suggestFileName, withUserValues,
 } from './logic.js';
 
@@ -42,7 +42,7 @@ const el = {
   clearFilters: $('clear-filters-btn'), panel: $('filter-panel'), panelTitle: $('filter-title'),
   panelQuery: $('filter-query'), panelAll: $('filter-all'), panelValues: $('filter-values'),
   panelOk: $('filter-ok'), panelCancel: $('filter-cancel'), panelClear: $('filter-clear'),
-  settings: $('settings'), itemsFile: $('items-file'), idColumn: $('id-column'), outputDir: $('output-dir'),
+  settings: $('settings'), itemsFile: $('items-file'), idColumn: $('id-column'), idColumnPick: $('id-column-pick'), idColumnHint: $('id-column-hint'), outputDir: $('output-dir'),
   templateFile: $('template-file'), templateBrowse: $('template-browse'),
   layoutFile: $('layout-file'), layoutBrowse: $('layout-browse'), layoutSheet: $('layout-sheet'),
   fontSize: $('font-size'), markEmpty: $('mark-empty'), emptyText: $('empty-text'),
@@ -915,6 +915,55 @@ function showSettings(cfg) {
   state.libraryDirs = { user: cfg.sessions_dir, global: cfg.global_sessions_dir };
   // Everything that changes the columns: a change reloads the items.
   state.savedDatabase = [cfg.items_file, cfg.id_column, cfg.table_layout_file, cfg.table_layout_sheet].join('\n');
+  refreshIdColumnChoices(cfg.id_column);
+}
+
+/** The ID column chosen in Settings: from the pick list when shown, else the text field. */
+const idColumnValue = () => (el.idColumnPick.hidden ? el.idColumn.value : el.idColumnPick.value).trim();
+
+/** Counter so only the answer to the latest headers request is shown. */
+let headersTicket = 0;
+
+/**
+ * Offer the headers of the database in the Item database field as ID column choices.
+ * The field may not be saved yet, so the list follows what the user is choosing.
+ * If the headers cannot be read, the free text field stays, with a hint.
+ * @param {string} [current] ID column to keep selected (default: the one chosen now).
+ */
+async function refreshIdColumnChoices(current = idColumnValue()) {
+  const ticket = ++headersTicket;
+  const itemsFile = el.itemsFile.value.trim();
+  let headers = [];
+  let problem = '';
+  if (itemsFile) {
+    const q = new URLSearchParams({
+      items_file: itemsFile, layout_file: el.layoutFile.value.trim(), layout_sheet: el.layoutSheet.value.trim(),
+    });
+    try {
+      ({ headers } = await api(`/api/headers?${q}`));
+    } catch (err) {
+      problem = err.message;
+    }
+  }
+  if (ticket !== headersTicket) return; // the fields changed again meanwhile
+  const usePick = headers.length > 0;
+  el.idColumn.value = current;
+  el.idColumn.hidden = usePick;
+  el.idColumnPick.hidden = !usePick;
+  el.idColumnHint.title = '';
+  if (!usePick) {
+    el.idColumnHint.textContent = problem ? 'Cannot read the headers of the database: type the name.' : '';
+    el.idColumnHint.title = problem;
+    return;
+  }
+  const { options, selected, missing } = idColumnChoices(current, headers);
+  el.idColumnPick.replaceChildren(...options.map(({ value, label }) => {
+    const option = make('option', label);
+    option.value = value;
+    return option;
+  }));
+  el.idColumnPick.value = selected;
+  el.idColumnHint.textContent = missing ? `'${current}' is not a column of this database: pick the ID column.` : '';
 }
 
 /** Fill the settings panel from the server. */
@@ -942,7 +991,7 @@ async function saveSettings() {
     const before = state.savedDatabase;
     const cfg = await sendJson('/api/settings', 'PUT', {
       items_file: el.itemsFile.value.trim(),
-      id_column: el.idColumn.value.trim(),
+      id_column: idColumnValue(),
       template_file: el.templateFile.value.trim(),
       table_layout_file: el.layoutFile.value.trim(),
       table_layout_sheet: el.layoutSheet.value.trim(),
@@ -1073,14 +1122,19 @@ function chooseBrowse() {
 /** Wire up the settings panel and the browse dialog. */
 function bindSettingsEvents() {
   el.settingsSave.addEventListener('click', saveSettings);
+  // The data sheet (and so its headers) depends on all three fields.
+  for (const field of [el.itemsFile, el.layoutFile, el.layoutSheet]) {
+    field.addEventListener('change', () => refreshIdColumnChoices());
+  }
+  el.idColumnPick.addEventListener('change', () => { el.idColumnHint.textContent = ''; });
   el.itemsBrowse.addEventListener('click', () => openBrowse({
     title: 'Choose the item database (.xlsx)', files: true, start: el.itemsFile.value.trim(),
-    onChoose: (p) => { el.itemsFile.value = p; el.settingsSave.focus(); },
+    onChoose: (p) => { el.itemsFile.value = p; refreshIdColumnChoices(); el.settingsSave.focus(); },
   }));
   el.layoutBrowse.addEventListener('click', () => openBrowse({
     title: 'Choose the workbook with the Word layout sheet (.xlsx)', files: true,
     start: el.layoutFile.value.trim() || el.itemsFile.value.trim(),
-    onChoose: (p) => { el.layoutFile.value = p; el.settingsSave.focus(); },
+    onChoose: (p) => { el.layoutFile.value = p; refreshIdColumnChoices(); el.settingsSave.focus(); },
   }));
   el.templateBrowse.addEventListener('click', () => openBrowse({
     title: 'Choose the Word template (.docx)', files: true, ext: '.docx', start: el.templateFile.value.trim(),

@@ -3,6 +3,11 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-24 – ID column pick list (0.5.0 step 2)
+- `GET /api/headers?items_file=&layout_file=&layout_sheet=` (local only) reads only the header row of the file in the **Settings field, not the saved setting**, so the list follows a database being chosen. Same data-sheet rule as loading (layout sheet skipped only when no separate layout file). `#` and `*` headers are left out: they can never be the ID column.
+- GUI: a `<select>` replaces the text field when headers were read; on error the text field stays with a hint (error text in its tooltip). A `<datalist>` was rejected: browsers filter its options by the current text, so with "ID" filled in the other headers would not show.
+- A saved ID column the database lacks stays selectable, marked "(not in this database)", so opening Settings never changes the setting silently. Stale answers are dropped with a request counter.
+
 ## 2026-11-24 – `\blank` marker for blank columns (0.5.0 step 1)
 - User's 0.4.0 test: `-` "did not work at all" and several `-` were "not allowed". A plain `-` (also repeated) worked in tests; the likely cause is autocorrect turning it into `–` (read as an unknown name → warning; twice → "mapped twice" error). The user's file was not at hand to confirm.
 - User's choice: **`\blank`** (matched ignoring case and outer spaces) is the documented marker – clearer and not touched by autocorrect. `-` and look-alikes (`–` `—` `−` `‐` `‑` `‒`) still mean blank so 0.4.0 layout files keep working (`LEGACY_BLANK_MARKERS`). `\blank*` is an error. The "mapped twice" message now suggests `\blank`.
