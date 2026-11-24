@@ -249,9 +249,11 @@ another `.xlsx` and sheet. Example: `data/layout_example.xlsx` (written by
   data sheet; the selected items are written beneath the header in that order.
   The mapping row itself is **not printed**. The table spans its first to last
   filled cell; a column may be mapped once.
-- A **`-`** in the mapping row is a **blank Word column** on purpose: its cells
-  stay empty (the header comes from the rows above). It also works at the left
-  or right edge of the table.
+- **`\blank`** in the mapping row (any case) is a **blank Word column** on
+  purpose: its cells stay empty (the header comes from the rows above). Use it
+  as often as needed; it also works at the left or right edge of the table.
+  (The 0.4.0 marker `-`, and dashes such as `–` that autocorrect puts in its
+  place, still work.)
 - The rows **above** it are the Word header: free text; merged cells (across
   and down) become merged cells in Word; Alt+Enter line breaks are kept. With
   no rows above, the mapping names form a one-row header. Merged cells must not
@@ -265,7 +267,7 @@ another `.xlsx` and sheet. Example: `data/layout_example.xlsx` (written by
 - An **empty mapping cell** inside the table, or a mapping name that is not a
   shown database column (and has no `*`), gives a blank Word column plus a
   **warning** (status bar, ⚠ on the "Word table" label; hover it for details).
-  The export still works. Use `-` to silence the warning, or `*` to type the
+  The export still works. Use `\blank` to silence the warning, or `*` to type the
   column in the tool.
 - Mapping names **ignore case and extra spaces** (`part  no` finds `Part No`),
   with a warning so the layout can be corrected. An exact name always wins; a

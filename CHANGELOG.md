@@ -2,6 +2,9 @@
 
 Format: one entry per release, newest first. Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+- **`\blank` marks a blank Word column** in the layout sheet's mapping row (any case, as often as needed). `-` still works, as do dashes such as `–` that autocorrect puts in its place (likely cause of "`-` does not work" in 0.4.0).
+
 ## [0.4.0] – 2026-11-20
 Changes from the Windows test of 0.3.0, plus four smaller additions. Not yet tried on Windows.
 - **Blank Word columns instead of layout errors:** an empty cell in the layout sheet's mapping row, or a name the database lacks, now gives an empty Word column and a **warning** (status bar, ⚠ on the "Word table" label) instead of stopping. A **`-`** in the mapping row is a blank column on purpose (no warning, also at the table edge).

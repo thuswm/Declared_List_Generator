@@ -166,8 +166,40 @@ def test_empty_mapping_cell_and_dash_give_blank_columns(tmp_path: Path) -> None:
     assert layout.column_keys == [None, "Name", None, "Volt"]
     assert layout.column_labels == ["(blank)", "Name", "(blank)", "Volt"]
     [warning] = layout.warnings
-    assert "Cell C2 in the mapping row is empty" in warning and "'-'" in warning
+    assert "Cell C2 in the mapping row is empty" in warning and "'\\blank'" in warning
     assert [(c.text, c.col_span) for c in layout.cells] == [("Group", 4)]
+
+
+def test_blank_marker_any_case_and_several(tmp_path: Path) -> None:
+    """'\\blank' (any case, outer spaces) marks blank columns on purpose, several times, without warnings."""
+    path = make_workbook(tmp_path / "db.xlsx",
+                         [["Name", " \\BLANK ", "\\blank", "Volt", "\\Blank"]])
+    layout = load_layout(path, "Word layout", required=False)
+    assert layout.column_keys == ["Name", None, None, "Volt", None]
+    assert layout.warnings == []
+
+
+@pytest.mark.parametrize("dash", ["-", "\u2013", "\u2014", "\u2212"])
+def test_legacy_dash_markers_still_blank(tmp_path: Path, dash: str) -> None:
+    """The 0.4.0 '-' and its autocorrect look-alikes still mark blank columns, also several."""
+    path = make_workbook(tmp_path / "db.xlsx", [["Name", dash, dash, "Volt"]])
+    layout = load_layout(path, "Word layout", required=False)
+    assert layout.column_keys == ["Name", None, None, "Volt"]
+    assert layout.warnings == []
+
+
+def test_blank_marker_cannot_be_input(tmp_path: Path) -> None:
+    """'\\blank*' is an error: a blank column cannot be an input column."""
+    path = make_workbook(tmp_path / "db.xlsx", [["Name", "\\blank*"]])
+    with pytest.raises(LayoutError, match="cannot be an input column"):
+        load_layout(path, "Word layout", required=False)
+
+
+def test_duplicate_name_message_suggests_blank_marker(tmp_path: Path) -> None:
+    """A name mapped twice quotes the text and points to the blank marker."""
+    path = make_workbook(tmp_path / "db.xlsx", [["Name", "x", "x"]])
+    with pytest.raises(LayoutError, match=r"'x' is mapped twice.*'\\blank'"):
+        load_layout(path, "Word layout", required=False)
 
 
 def test_unmapped_database_columns_are_allowed(tmp_path: Path) -> None:

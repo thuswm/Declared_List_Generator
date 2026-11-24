@@ -7,8 +7,9 @@ database workbook):
   of the data sheet; the data rows go beneath the header in that order. The
   mapping row itself is not printed.
 * The table spans the columns from the first to the last filled cell of the
-  mapping row. A ``-`` there is a blank Word column on purpose (it may also
-  sit at the table edge). An empty cell in between, or a name the database
+  mapping row. ``\\blank`` there (any case) is a blank Word column on purpose
+  (it may also sit at the table edge). The 0.4.0 marker ``-`` and dash
+  look-alikes such as ``–`` still work. An empty cell in between, or a name the database
   lacks, also gives a blank column, but with a warning.
 * The rows above the mapping row (from the first row with text) are the Word
   header. They hold free text, and merged cells (across and down) become merged
@@ -36,8 +37,12 @@ from dlg.sources.excel import INPUT_MARKER, cell_text
 #: Default name of the layout sheet inside the item database workbook.
 DEFAULT_LAYOUT_SHEET = "Word layout"
 
-#: Mapping-cell text for a Word column that is blank on purpose.
-BLANK_MARKER = "-"
+#: Mapping-cell text for a Word column that is blank on purpose (matched ignoring case).
+BLANK_MARKER = "\\blank"
+
+#: Older blank markers, still accepted: the 0.4.0 ``-`` and the dashes that
+#: autocorrect or keyboards often put in its place (en/em dash, minus, hyphen).
+LEGACY_BLANK_MARKERS = frozenset({"-", "\u2013", "\u2014", "\u2212", "\u2010", "\u2011", "\u2012"})
 
 #: Excel's default column width (characters) for columns without a set width.
 EXCEL_DEFAULT_WIDTH = 8.43
@@ -76,9 +81,9 @@ class LayoutColumn:
     """One column of the Word table, as named in the mapping row.
 
     Attributes:
-        name: Mapping text without the ``*`` ('' for an empty cell or ``-``).
+        name: Mapping text without the ``*`` ('' for an empty cell or ``\\blank``).
         user_input: True if the name ended in ``*``.
-        blank: True if the column is exported empty (``-``, an empty cell, or
+        blank: True if the column is exported empty (``\\blank``, an empty cell, or
             a name the database lacks).
         ref: Excel cell of the mapping name, e.g. ``C5`` (for messages).
     """
@@ -171,6 +176,18 @@ def load_layout(path: str | Path, sheet: str, required: bool) -> TableLayout | N
         wb.close()
 
 
+def is_blank_marker(text: str) -> bool:
+    """Tell whether a mapping cell marks a blank Word column on purpose.
+
+    Args:
+        text: Stripped mapping-cell text.
+
+    Returns:
+        True for ``\\blank`` (any case) or one of the older dash markers.
+    """
+    return text.casefold() == BLANK_MARKER or text in LEGACY_BLANK_MARKERS
+
+
 def find_sheet(names: list[str], wanted: str) -> str | None:
     """Find a sheet by name: exact match first, then ignoring case.
 
@@ -219,7 +236,7 @@ def parse_layout(ws: Worksheet, source: str) -> TableLayout:
     for c in range(first_col, last_col + 1):
         ref = f"{get_column_letter(c)}{map_row}"
         name = text.get((map_row, c), "")
-        if name == BLANK_MARKER:
+        if is_blank_marker(name):
             columns.append(LayoutColumn(name="", blank=True, ref=ref))
             continue
         if not name:
@@ -235,13 +252,16 @@ def parse_layout(ws: Worksheet, source: str) -> TableLayout:
             name = name.rstrip(INPUT_MARKER).rstrip()
         if not name:
             raise LayoutError(f"Layout sheet {source}: cell {ref} has no column name before the '*'.")
-        if name == BLANK_MARKER:
+        if is_blank_marker(name):
             raise LayoutError(
-                f"Layout sheet {source}: cell {ref}: '{BLANK_MARKER}' marks a blank column "
+                f"Layout sheet {source}: cell {ref}: '{name}' marks a blank column "
                 "and cannot be an input column."
             )
         if name in [col.name for col in columns]:
-            raise LayoutError(f"Layout sheet {source}: column '{name}' is mapped twice (cell {ref}).")
+            raise LayoutError(
+                f"Layout sheet {source}: column '{name}' is mapped twice (cell {ref}). "
+                f"For several blank columns write '{BLANK_MARKER}' in each."
+            )
         columns.append(LayoutColumn(name=name, user_input=user_input, ref=ref))
 
     in_table = [r for r, c in text if r < map_row and first_col <= c <= last_col]

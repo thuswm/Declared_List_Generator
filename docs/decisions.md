@@ -3,6 +3,10 @@
 Architecture decision log, newest first. Full per-phase history of release 0.1.0:
 [archive/release-0.1.0-plan.md](archive/release-0.1.0-plan.md).
 
+## 2026-11-24 – `\blank` marker for blank columns (0.5.0 step 1)
+- User's 0.4.0 test: `-` "did not work at all" and several `-` were "not allowed". A plain `-` (also repeated) worked in tests; the likely cause is autocorrect turning it into `–` (read as an unknown name → warning; twice → "mapped twice" error). The user's file was not at hand to confirm.
+- User's choice: **`\blank`** (matched ignoring case and outer spaces) is the documented marker – clearer and not touched by autocorrect. `-` and look-alikes (`–` `—` `−` `‐` `‑` `‒`) still mean blank so 0.4.0 layout files keep working (`LEGACY_BLANK_MARKERS`). `\blank*` is an error. The "mapped twice" message now suggests `\blank`.
+
 ## 2026-11-20 – GitHub release status
 - A release is published as a GitHub **pre-release** and promoted to a full release once the user has checked it on Windows. On 2026-11-20 the user promoted `v0.2.0` and `v0.3.0` (`v0.3.0` = Latest); `v0.4.0` stays a pre-release until its Windows check.
 
